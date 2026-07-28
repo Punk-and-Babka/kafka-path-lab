@@ -26,6 +26,9 @@ export type SimulationNode =
   | "timeout"
   | "retry"
   | "consumer"
+  | "deserializer"
+  | "processor"
+  | "sink"
   | "offset";
 export type LifecycleKey =
   | "producerSend"
@@ -38,6 +41,9 @@ export type LifecycleKey =
   | "retryResolution"
   | "producerAck"
   | "consumerFetch"
+  | "deserialization"
+  | "businessProcessing"
+  | "sinkWrite"
   | "offsetCommit";
 export type LifecycleStatus = "waiting" | "active" | "done" | "skipped" | "failed";
 export type StepDisposition = "success" | "skipped" | "failed";
@@ -222,6 +228,30 @@ export const STEPS: SimulationStep[] = [
     node: "consumer",
   },
   {
+    id: "deserialization",
+    short: "Decode",
+    title: "Payload десериализован",
+    description: "Consumer преобразовал bytes из record в объект и проверил, что JSON соответствует ожидаемой структуре.",
+    technical: "На этом шаге проявляются ошибки формата, несовместимая schema и неожиданные обязательные поля.",
+    node: "deserializer",
+  },
+  {
+    id: "businessProcessing",
+    short: "Process",
+    title: "Запущена бизнес-обработка",
+    description: "Handler применяет правила приложения к заказу и подготавливает результат для внешней системы.",
+    technical: "Kafka считает record прочитанным, но бизнес-операция ещё может завершиться ошибкой или быть выполнена повторно.",
+    node: "processor",
+  },
+  {
+    id: "sinkWrite",
+    short: "DB write",
+    title: "Результат сохранён во внешней БД",
+    description: "Consumer записал обработанный заказ в analytics_db — появился наблюдаемый side effect.",
+    technical: "Для QA важно связать eventId, partition и offset с записью в БД и проверить идемпотентность этой операции.",
+    node: "sink",
+  },
+  {
     id: "offsetCommit",
     short: "Offset",
     title: "Consumer зафиксировал offset",
@@ -257,7 +287,7 @@ export const SCENARIOS: Scenario[] = [
     title: "Обычная доставка",
     badge: "Сценарий 01 · Основы",
     description: "Полный путь event при RF=2, min ISR=2 и acks=all.",
-    lesson: "Проследите восемь независимых фактов: от send() до commit consumer offset.",
+    lesson: "Проследите одиннадцать независимых фактов: от send() и append до записи в БД и commit consumer offset.",
     defaultKey: "user-123",
     defaultValue: '{"orderId":8421,"status":"created"}',
     sendLabel: "Отправить event",
@@ -469,6 +499,9 @@ export const GLOSSARY = [
   ["Sequence number", "Порядковый номер записи внутри Producer. Retry сохраняет тот же sequence, поэтому Broker может распознать повтор."],
   ["Duplicate", "Второй record с тем же бизнес-событием, но новым offset, появившийся из-за повторной отправки."],
   ["Ambiguous result", "Producer получил timeout и не знает итог, хотя Broker уже мог сохранить record."],
+  ["Deserialization", "Преобразование bytes из Kafka record в объект приложения с проверкой формата или schema."],
+  ["Side effect", "Наблюдаемый результат обработки вне Kafka, например запись заказа в PostgreSQL."],
+  ["__consumer_offsets", "Внутренний compacted topic Kafka, где consumer group хранит committed offsets."],
 ] as const;
 
 export function hashKey(value: string) {
@@ -550,7 +583,13 @@ export function stepOrderForConfig(
   const afterAppend = config.acks === "1"
     ? ["producerAck", "replication", "committed"] as LifecycleKey[]
     : ["replication", "committed", "producerAck"] as LifecycleKey[];
-  const finish = ["consumerFetch", "offsetCommit"] as LifecycleKey[];
+  const finish = [
+    "consumerFetch",
+    "deserialization",
+    "businessProcessing",
+    "sinkWrite",
+    "offsetCommit",
+  ] as LifecycleKey[];
 
   if (faultMode === "request-lost" && config.acks !== "0") {
     if (config.retries === 0) {
@@ -735,6 +774,9 @@ export function stepDisposition(
       if (event.delivery.acks === "0") return "skipped";
       return event.result.producerResult === "ack" ? "success" : "failed";
     case "consumerFetch":
+    case "deserialization":
+    case "businessProcessing":
+    case "sinkWrite":
     case "offsetCommit":
       return event.result.recordCommitted ? "success" : "skipped";
   }
@@ -786,6 +828,24 @@ export function isRetryResolved(event: EventRecord) {
 
 export function isConsumed(event: EventRecord) {
   return event.result.recordCommitted && reached(event, "consumerFetch");
+}
+
+export function isDeserialized(event: EventRecord) {
+  return event.result.recordCommitted
+    && event.stepOrder.includes("deserialization")
+    && reached(event, "deserialization");
+}
+
+export function isProcessed(event: EventRecord) {
+  return event.result.recordCommitted
+    && event.stepOrder.includes("businessProcessing")
+    && reached(event, "businessProcessing");
+}
+
+export function isSinkWritten(event: EventRecord) {
+  return event.result.recordCommitted
+    && event.stepOrder.includes("sinkWrite")
+    && reached(event, "sinkWrite");
 }
 
 export function isOffsetCommitted(event: EventRecord) {

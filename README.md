@@ -1,11 +1,16 @@
-# Kafka Path 0.3.3
+# Kafka Path 0.4.0
 
 Интерактивный учебный симулятор Kafka на React и TypeScript.
 
-Версия 0.3.3 включает state machine, визуальные журналы P0/P1/P2, несколько
+Версия 0.4.0 включает state machine, визуальные журналы P0/P1/P2, несколько
 events, маршрутизацию одинакового key, Event Inspector и Lifecycle Tracker,
 а также интерактивные настройки `acks`, `replication.factor`,
 `min.insync.replicas`, доступности Brokers, `retries` и idempotence.
+
+Главная схема стала длинной end-to-end цепочкой с автоматическим следованием
+за event: Producer → partition → Leader/Follower → ACK → Consumer `poll()` →
+десериализация → бизнес-обработка → запись в `analytics_db` → commit в
+`__consumer_offsets`.
 
 Новые сценарии отказоустойчивости показывают падение Broker, выбор нового
 Leader, сокращение ISR, блокировку записи при `NotEnoughReplicas`, состояние

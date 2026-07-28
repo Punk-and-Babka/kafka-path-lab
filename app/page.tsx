@@ -11,7 +11,8 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import {
   AcksMode, BASE_OFFSETS, BROKER_COUNT, clusterRuntimeForScenario,
   DeliveryConfig, evaluateDelivery, EventRecord, GLOSSARY, hasProducerResult,
-  isConsumed, isFollowerReplicated, isLogVisible, isOffsetCommitted, isRetryResolved,
+  isConsumed, isDeserialized, isFollowerReplicated, isLogVisible,
+  isOffsetCommitted, isProcessed, isRetryResolved, isSinkWritten,
   isRecordCommitted, lifecycleForEvent, LifecycleStatus, PARTITION_COUNT,
   NetworkFaultMode, partitionRuntime, replicaKey, resolvePartition,
   SAME_KEY_VALUES, SCENARIOS, ScenarioId, SimulationStep, STEP_BY_ID,
@@ -31,6 +32,9 @@ const lifecycleLabels = {
   retryResolution: ["Broker dedup", "Дубль или подавление"],
   producerAck: ["Producer ACK", "Ответ получен"],
   consumerFetch: ["Consumer fetch", "Event прочитан"],
+  deserialization: ["Deserialize", "Payload преобразован"],
+  businessProcessing: ["Business handler", "Правила выполнены"],
+  sinkWrite: ["Database write", "Результат сохранён"],
   offsetCommit: ["Offset commit", "Позиция сохранена"],
 } as const;
 const statusText: Record<LifecycleStatus, string> = {
@@ -252,6 +256,9 @@ export default function Home() {
   });
   const [inspectorTab, setInspectorTab] = useState<"event" | "delivery" | "lifecycle">("delivery");
   const [copied, setCopied] = useState(false);
+  const [autoFollow, setAutoFollow] = useState(true);
+  const chainViewportRef = useRef<HTMLDivElement>(null);
+  const chainMapRef = useRef<HTMLDivElement>(null);
   const keylessCounter = useRef(0);
   const eventCounter = useRef(1);
 
@@ -602,16 +609,29 @@ export default function Home() {
   const followerY = BROKER_Y[followerBroker - 1];
   const orb = useMemo(() => {
     switch (activeStep?.node) {
-      case "partition": return { x: 51, y: partitionY };
-      case "leader": case "committed": return { x: 69, y: leaderY };
-      case "follower": return { x: 69, y: followerY };
-      case "ack": return { x: 8.5, y: 42 };
-      case "timeout": return { x: 37, y: 13 };
-      case "retry": return { x: 31, y: 50 };
-      case "consumer": case "offset": return { x: 91, y: 50 };
-      default: return { x: 8.5, y: 50 };
+      case "partition": return { x: 26, y: partitionY };
+      case "leader": case "committed": return { x: 49, y: leaderY };
+      case "follower": return { x: 49, y: followerY };
+      case "ack": return { x: 4.5, y: 42 };
+      case "timeout": return { x: 27, y: 12 };
+      case "retry": return { x: 22, y: 50 };
+      case "consumer": return { x: 63, y: 50 };
+      case "deserializer": return { x: 74, y: 32 };
+      case "processor": return { x: 84, y: 50 };
+      case "sink": return { x: 94, y: 32 };
+      case "offset": return { x: 84, y: 76 };
+      default: return { x: 4.5, y: 50 };
     }
   }, [activeStep, followerY, leaderY, partitionY]);
+
+  useEffect(() => {
+    if (!autoFollow || !activeEvent) return;
+    const viewport = chainViewportRef.current;
+    const map = chainMapRef.current;
+    if (!viewport || !map) return;
+    const target = (orb.x / 100) * map.offsetWidth - viewport.clientWidth / 2;
+    viewport.scrollTo({ left: Math.max(0, target), behavior: "smooth" });
+  }, [activeEvent, autoFollow, orb.x, showClusterFocus]);
 
   const ackReached = activeEvent
     ? hasProducerResult(activeEvent) && activeEvent.delivery.acks !== "0"
@@ -625,6 +645,11 @@ export default function Home() {
   const replicationReached = activeEvent
     ? isFollowerReplicated(activeEvent)
     : false;
+  const consumeReached = activeEvent ? isConsumed(activeEvent) : false;
+  const deserializeReached = activeEvent ? isDeserialized(activeEvent) : false;
+  const processingReached = activeEvent ? isProcessed(activeEvent) : false;
+  const sinkReached = activeEvent ? isSinkWritten(activeEvent) : false;
+  const offsetReached = activeEvent ? isOffsetCommitted(activeEvent) : false;
 
   const setConfig = <K extends keyof DeliveryConfig>(
     key: K,
@@ -752,7 +777,7 @@ export default function Home() {
       <header className="topbar">
         <a className="brand" href="#" aria-label="Kafka Path — главная">
           <span className="brand-mark"><Network size={19} /></span>
-          <span>Kafka Path</span><span className="version">version 0.3.3</span>
+          <span>Kafka Path</span><span className="version">version 0.4.0</span>
         </a>
         <div className="header-actions">
           <button className="header-link" onClick={() => setShowGlossary(true)}>
@@ -768,9 +793,9 @@ export default function Home() {
       <section className="workspace">
         <div className="intro-row">
           <div>
-            <p className="eyebrow"><Activity size={14} /> Producer delivery lab</p>
-            <h1>Что происходит, когда ACK теряется после записи в Kafka</h1>
-            <p>Запускайте timeout и retry, сравнивайте дубли с idempotence и управляйте анимацией пошагово. Все возможности Broker, ISR и partition из 0.3.2 сохранены.</p>
+            <p className="eyebrow"><Activity size={14} /> End-to-end event chain</p>
+            <h1>Полный путь event: от Producer до БД и commit offset</h1>
+            <p>Следите за длинной цепочкой из одиннадцати этапов: routing, append, replication, ACK, fetch, decode, бизнес-обработка, запись результата и offset commit. Retry, idempotence и управление Broker сохранены.</p>
           </div>
           <div className="cluster-summary">
             <span><Server size={15} /> {onlineBrokers.length}/3 online</span>
@@ -815,7 +840,7 @@ export default function Home() {
 
         <div className="scenario-labels">
           <span>{isGuided ? "Основы 0.2" : "Базовые presets"}</span>
-          <span>{isGuided ? "Producer reliability 0.3.1" : "Presets доставки"}</span>
+          <span>{isGuided ? "End-to-end chain 0.4" : "Presets доставки"}</span>
           <span>{isGuided ? "Cluster resilience 0.3.2" : "Presets отказов"}</span>
           <span>{isGuided ? "Retries 0.3.3" : "Presets сети"}</span>
         </div>
@@ -1290,7 +1315,7 @@ export default function Home() {
         <div className="content-grid">
           <section className={`simulator-card ${showClusterFocus ? "focus-mode" : ""}`}>
             <div className="card-heading">
-              <div><span>ФИЗИЧЕСКИЙ КЛАСТЕР + ЛОГИЧЕСКИЙ ЖУРНАЛ</span><h2>{TOPIC_NAME}</h2></div>
+              <div><span>END-TO-END EVENT CHAIN · 11+ ЭТАПОВ</span><h2>{TOPIC_NAME} → analytics_db</h2></div>
               <div className="sim-controls">
                 <button className="icon-button" onClick={goPrevious} disabled={!activeEvent || activeEvent.stage === 0} aria-label="Предыдущий шаг" title="Предыдущий шаг · ←"><SkipBack size={18} /></button>
                 <button className="icon-button primary-control" onClick={() => activeEvent && setPlaying((v) => !v)} disabled={!activeEvent} aria-label={playing ? "Пауза" : "Продолжить"} title="Пауза / продолжить · Space">{playing ? <CirclePause size={20} /> : <CirclePlay size={20} />}</button>
@@ -1298,6 +1323,14 @@ export default function Home() {
                 <button className="icon-button" onClick={replayActive} disabled={!activeEvent} aria-label="Повторить анимацию" title="Повторить анимацию · R"><TimerReset size={18} /></button>
                 <button className="icon-button" onClick={resetScenario} disabled={!events.length} aria-label="Очистить события" title="Очистить события"><RotateCcw size={18} /></button>
                 <button className={`icon-button ${showSettings ? "selected" : ""}`} onClick={() => setShowSettings((v) => !v)} aria-label="Скорость"><Settings2 size={18} /></button>
+                <button
+                  className={`follow-button ${autoFollow ? "active" : ""}`}
+                  onClick={() => setAutoFollow((value) => !value)}
+                  aria-pressed={autoFollow}
+                  title="Автоматически прокручивать длинную цепочку к текущему этапу"
+                >
+                  <Radio size={15} /> <span>{autoFollow ? "Следую за event" : "Свободная прокрутка"}</span>
+                </button>
                 <button className="focus-button" onClick={() => setShowClusterFocus((value) => !value)} aria-label={showClusterFocus ? "Выйти из режима фокуса" : "Развернуть схему"}>
                   {showClusterFocus ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
                   <span>{showClusterFocus ? "Свернуть" : "Режим фокуса"}</span>
@@ -1308,16 +1341,25 @@ export default function Home() {
               </div>
             </div>
 
-            <div className="cluster-map">
+            <div className="chain-viewport" ref={chainViewportRef}>
+            <div className="cluster-map extended-map" ref={chainMapRef}>
               <svg className="connectors" viewBox="0 0 1000 520" preserveAspectRatio="none" aria-hidden="true">
                 <defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" /></marker></defs>
-                <path className={routeReached ? "route active" : "route"} d={`M140 260 C180 260 195 ${partitionY * 5.2} 500 ${partitionY * 5.2}`} markerEnd="url(#arrow)" />
-                <path className={appendReached ? `route active ${activeEvent?.result.leaderAppended ? "" : "failed"}` : "route"} d={`M510 ${partitionY * 5.2} C560 ${partitionY * 5.2} 600 ${leaderY * 5.2} 640 ${leaderY * 5.2}`} markerEnd="url(#arrow)" />
-                <path className={replicationReached ? "route replication active" : "route replication"} d={`M700 ${leaderY * 5.2} C790 ${leaderY * 5.2} 790 ${followerY * 5.2} 700 ${followerY * 5.2}`} markerEnd="url(#arrow)" />
-                <path className={activeEvent && isConsumed(activeEvent) ? "route consume active" : "route consume"} d={`M750 ${leaderY * 5.2} C810 ${leaderY * 5.2} 825 260 865 260`} markerEnd="url(#arrow)" />
-                <path className={ackReached ? `route ack active ${activeEvent?.result.producerResult === "error" ? "failed" : ""}` : "route ack"} d={`M640 ${leaderY * 5.2} C520 55 220 55 100 220`} markerEnd="url(#arrow)" />
+                <path className={routeReached ? "route active" : "route"} d={`M88 260 C125 260 165 ${partitionY * 5.2} 250 ${partitionY * 5.2}`} markerEnd="url(#arrow)" />
+                <path className={appendReached ? `route active ${activeEvent?.result.leaderAppended ? "" : "failed"}` : "route"} d={`M390 ${partitionY * 5.2} C425 ${partitionY * 5.2} 450 ${leaderY * 5.2} 475 ${leaderY * 5.2}`} markerEnd="url(#arrow)" />
+                <path className={replicationReached ? "route replication active" : "route replication"} d={`M510 ${leaderY * 5.2} C550 ${leaderY * 5.2} 550 ${followerY * 5.2} 510 ${followerY * 5.2}`} markerEnd="url(#arrow)" />
+                <path className={consumeReached ? "route consume active" : "route consume"} d={`M535 ${leaderY * 5.2} C565 ${leaderY * 5.2} 590 260 615 260`} markerEnd="url(#arrow)" />
+                <path className={deserializeReached ? "route pipeline active" : "route pipeline"} d="M665 260 C690 255 700 185 725 171" markerEnd="url(#arrow)" />
+                <path className={processingReached ? "route pipeline active" : "route pipeline"} d="M765 171 C790 178 805 245 830 260" markerEnd="url(#arrow)" />
+                <path className={sinkReached ? "route sink active" : "route sink"} d="M875 260 C900 250 910 185 935 171" markerEnd="url(#arrow)" />
+                <path className={offsetReached ? "route offset active" : "route offset"} d="M955 194 C965 270 930 365 855 392" markerEnd="url(#arrow)" />
+                <path className={ackReached ? `route ack active ${activeEvent?.result.producerResult === "error" ? "failed" : ""}` : "route ack"} d={`M475 ${leaderY * 5.2} C405 55 170 55 55 218`} markerEnd="url(#arrow)" />
               </svg>
-              <span className="map-label producer-label">PRODUCER</span><span className="map-label brokers-label">BROKERS / REPLICAS</span><span className="map-label consumer-label">CONSUMER GROUP</span>
+              <span className="map-label producer-label">PRODUCER</span>
+              <span className="map-label topic-label">TOPIC / PARTITIONS</span>
+              <span className="map-label brokers-label">BROKERS / REPLICAS</span>
+              <span className="map-label consumer-label">CONSUMER PIPELINE</span>
+              <span className="map-label side-effect-label">SIDE EFFECT + COMMIT</span>
               {activeStep?.id === "networkTimeout" && (
                 <div className={`network-fault-burst ${activeEvent?.faultMode ?? faultMode}`}>
                   <span><WifiOff size={18} /></span>
@@ -1394,7 +1436,26 @@ export default function Home() {
                   </div></div>
                 </button>;
               })}
-              <div className={`map-node consumer-node ${activeEvent && isConsumed(activeEvent) ? "current mint-current" : ""}`}><span className="node-icon mint"><Users size={21} /></span><div><strong>analytics-cg</strong><small>Consumer 1</small></div></div>
+              <div className={`map-node consumer-node ${activeStep?.node === "consumer" ? "current mint-current" : ""}`}>
+                <span className="node-icon mint"><Users size={21} /></span>
+                <div><strong>analytics-cg</strong><small>poll() · Consumer 1</small></div>
+              </div>
+              <div className={`map-node decode-node pipeline-node ${activeStep?.node === "deserializer" ? "current mint-current" : ""}`}>
+                <span className="node-icon cyan"><Braces size={21} /></span>
+                <div><strong>JSON Decoder</strong><small>bytes → OrderEvent</small></div>
+              </div>
+              <div className={`map-node process-node pipeline-node ${activeStep?.node === "processor" ? "current mint-current" : ""}`}>
+                <span className="node-icon violet"><Activity size={21} /></span>
+                <div><strong>Order Handler</strong><small>business processing</small></div>
+              </div>
+              <div className={`map-node sink-node pipeline-node ${activeStep?.node === "sink" ? "current mint-current" : ""}`}>
+                <span className="node-icon amber"><Database size={21} /></span>
+                <div><strong>analytics_db</strong><small>external side effect</small></div>
+              </div>
+              <div className={`map-node offset-node pipeline-node ${activeStep?.node === "offset" ? "current mint-current" : ""}`}>
+                <span className="node-icon mint"><ShieldCheck size={21} /></span>
+                <div><strong>Offset Store</strong><small>__consumer_offsets</small></div>
+              </div>
               {activeEvent && activeStep && <div className={`event-orb stage-${activeEvent.stage} ${activeDisposition ?? ""}`} style={{ left: `${orb.x}%`, top: `${orb.y}%` }}><b>{
                 activeStep.node === "ack"
                   ? activeEvent.delivery.acks === "0" ? "∅" : activeEvent.result.producerResult === "error" ? "ERR" : "ACK"
@@ -1402,9 +1463,14 @@ export default function Home() {
                     : activeStep.id === "retrySend" ? "R2"
                       : activeStep.id === "retryResolution"
                         ? activeEvent.result.duplicateWritten ? "DUP" : "OK"
+                        : activeStep.node === "deserializer" ? "JSON"
+                          : activeStep.node === "processor" ? "RUN"
+                            : activeStep.node === "sink" ? "DB"
+                              : activeStep.node === "offset" ? "OFF"
                   : activeDisposition === "failed" ? "!" : activeDisposition === "skipped" ? "—" : "E"
               }</b></div>}
               {!activeEvent && <div className="empty-map"><span><Send size={20} /></span><strong>Сценарий готов</strong><small>Отправьте event, чтобы запустить state machine</small></div>}
+            </div>
             </div>
 
             <div
@@ -1438,7 +1504,17 @@ export default function Home() {
           <aside className="inspector">
             <section className="inspector-card explanation-card">
               <div className="step-counter"><span>ШАГ {activeEvent ? activeEvent.stage + 1 : "—"} ИЗ {activeEvent?.stepOrder.length ?? timelineSteps.length}</span>{playing && <i><span /> в процессе</i>}</div>
-              <div className="explanation-icon">{activeStep?.node === "follower" ? <Database size={22} /> : activeStep?.node === "consumer" || activeStep?.node === "offset" ? <Users size={22} /> : <Info size={22} />}</div>
+              <div className="explanation-icon">{
+                activeStep?.node === "follower" || activeStep?.node === "sink"
+                  ? <Database size={22} />
+                  : activeStep?.node === "consumer" || activeStep?.node === "offset"
+                    ? <Users size={22} />
+                    : activeStep?.node === "deserializer"
+                      ? <Braces size={22} />
+                      : activeStep?.node === "processor"
+                        ? <Activity size={22} />
+                        : <Info size={22} />
+              }</div>
               <h2>{activeStepCopy.title}</h2><p>{activeStepCopy.description}</p>
               <div className="tech-note"><span>Технически</span><p>{activeStepCopy.technical}</p></div>
               <div className="keyboard-help"><span><kbd>Space</kbd> пауза</span><span><kbd>←</kbd><kbd>→</kbd> шаг</span><span><kbd>R</kbd> повтор</span></div>
@@ -1704,10 +1780,10 @@ export default function Home() {
       </div>}
 
       {showGlossary && <div className="drawer-backdrop" onMouseDown={() => setShowGlossary(false)}><section className="glossary-modal" role="dialog" aria-modal="true" aria-labelledby="glossary-title" onMouseDown={(event) => event.stopPropagation()}>
-        <div className="drawer-header"><div><span>Учебный словарь · 0.3.3</span><h2 id="glossary-title">Термины Kafka</h2></div><button className="icon-button" onClick={() => setShowGlossary(false)} aria-label="Закрыть словарь"><X size={24} /></button></div>
+        <div className="drawer-header"><div><span>Учебный словарь · 0.4.0</span><h2 id="glossary-title">Термины Kafka</h2></div><button className="icon-button" onClick={() => setShowGlossary(false)} aria-label="Закрыть словарь"><X size={24} /></button></div>
         <p className="drawer-intro">Определения привязаны к тому, что можно увидеть и проверить прямо в симуляции.</p>
         <div className="glossary-list">{GLOSSARY.map(([term, definition], index) => <article key={term}><span>{String(index + 1).padStart(2, "0")}</span><div><h3>{term}</h3><p>{definition}</p></div></article>)}</div>
-        <div className="next-version"><Sparkles size={18} /><div><strong>Далее · версия 0.4</strong><p>Consumer group, lag, commit и rebalance.</p></div><ArrowRight size={17} /></div>
+        <div className="next-version"><Sparkles size={18} /><div><strong>Далее · версия 0.4.1</strong><p>Consumer crash, commit timing, lag и rebalance.</p></div><ArrowRight size={17} /></div>
       </section></div>}
     </main>
   );

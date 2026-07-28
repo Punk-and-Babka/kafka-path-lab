@@ -4843,6 +4843,218 @@ button.record-row:hover,
   to { opacity: 1; transform: scale(1); }
 }
 
+/* Kafka Path 0.4.0 — extended end-to-end event chain. */
+.chain-viewport {
+  width: 100%;
+  position: relative;
+  overflow-x: auto;
+  overflow-y: hidden;
+  background: #fcfcfe;
+  scrollbar-color: #bcb5e9 #ececf3;
+  scrollbar-width: thin;
+  overscroll-behavior-inline: contain;
+}
+
+.chain-viewport::-webkit-scrollbar {
+  height: 11px;
+}
+
+.chain-viewport::-webkit-scrollbar-track {
+  background: #ececf3;
+}
+
+.chain-viewport::-webkit-scrollbar-thumb {
+  background: #bcb5e9;
+  border: 3px solid #ececf3;
+  border-radius: 999px;
+}
+
+.cluster-map.extended-map {
+  width: 1680px;
+  min-width: 1680px;
+  height: 620px;
+}
+
+.cluster-map.extended-map::before {
+  position: absolute;
+  z-index: 0;
+  inset: 13% 1.4% 8% 57.5%;
+  content: "";
+  background:
+    linear-gradient(135deg, rgba(53, 185, 140, .055), rgba(105, 86, 232, .035)),
+    rgba(255, 255, 255, .46);
+  border: 1px dashed rgba(76, 166, 137, .25);
+  border-radius: 22px;
+}
+
+.extended-map .connectors {
+  z-index: 1;
+}
+
+.extended-map .producer-node,
+.extended-map .producer-label {
+  left: 4.5%;
+}
+
+.extended-map .topic-journal {
+  width: 28%;
+  min-width: 0;
+  height: 72%;
+  top: 14%;
+  left: 11%;
+}
+
+.extended-map .topic-label {
+  left: 25%;
+}
+
+.extended-map .broker-node,
+.extended-map .brokers-label {
+  left: 49%;
+}
+
+.extended-map .broker-node {
+  width: 162px;
+}
+
+.extended-map .consumer-node {
+  left: 63%;
+  top: 50%;
+}
+
+.extended-map .decode-node {
+  left: 74%;
+  top: 32%;
+}
+
+.extended-map .process-node {
+  left: 84%;
+  top: 50%;
+}
+
+.extended-map .sink-node {
+  left: 94%;
+  top: 32%;
+}
+
+.extended-map .offset-node {
+  left: 84%;
+  top: 76%;
+}
+
+.extended-map .pipeline-node {
+  width: 148px;
+}
+
+.extended-map .consumer-label {
+  left: 74%;
+}
+
+.extended-map .side-effect-label {
+  left: 91%;
+}
+
+.node-icon.cyan {
+  color: #168da3;
+  background: #e0f7fa;
+}
+
+.route.pipeline {
+  stroke: #d5e4e0;
+}
+
+.route.pipeline.active {
+  stroke: #32ad87;
+}
+
+.route.sink {
+  stroke: #e7ded0;
+}
+
+.route.sink.active {
+  stroke: #e19a36;
+}
+
+.route.offset {
+  stroke: #d7d3ec;
+  stroke-dasharray: 5 5;
+}
+
+.route.offset.active {
+  stroke: #7562e9;
+}
+
+.follow-button {
+  min-height: 36px;
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #73798c;
+  background: #f7f7fa;
+  border: 1px solid #e0e2ea;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.follow-button.active {
+  color: #187d61;
+  background: #ecf9f4;
+  border-color: #c7e7dc;
+}
+
+.follow-button.active svg {
+  animation: follow-pulse 1.5s ease-in-out infinite;
+}
+
+.extended-map .network-fault-burst {
+  left: 20%;
+}
+
+.extended-map .retry-wave {
+  left: 15%;
+}
+
+.extended-map .empty-map {
+  inset: 52% auto auto 62%;
+}
+
+.simulator-card.focus-mode .chain-viewport {
+  height: calc(100vh - 194px);
+  min-height: 620px;
+}
+
+.simulator-card.focus-mode .cluster-map.extended-map {
+  height: 100%;
+  min-height: 620px;
+}
+
+.simulator-card.focus-mode .topic-journal {
+  width: 28%;
+  left: 11%;
+}
+
+.simulator-card.focus-mode .broker-node,
+.simulator-card.focus-mode .brokers-label {
+  left: 49%;
+}
+
+.simulator-card.focus-mode .consumer-node,
+.simulator-card.focus-mode .consumer-label {
+  left: 63%;
+}
+
+.simulator-card.focus-mode .consumer-label {
+  left: 74%;
+}
+
+@keyframes follow-pulse {
+  0%, 100% { opacity: .65; transform: scale(.92); }
+  50% { opacity: 1; transform: scale(1.08); }
+}
+
 @media (max-width: 1450px) {
   .scenario-switcher {
     grid-template-columns: repeat(4, minmax(0, 1fr));
