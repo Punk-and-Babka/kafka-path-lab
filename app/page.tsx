@@ -610,17 +610,17 @@ export default function Home() {
   const orb = useMemo(() => {
     switch (activeStep?.node) {
       case "partition": return { x: 26, y: partitionY };
-      case "leader": case "committed": return { x: 49, y: leaderY };
-      case "follower": return { x: 49, y: followerY };
+      case "leader": case "committed": return { x: 54, y: leaderY };
+      case "follower": return { x: 54, y: followerY };
       case "ack": return { x: 4.5, y: 42 };
       case "timeout": return { x: 27, y: 12 };
       case "retry": return { x: 22, y: 50 };
-      case "consumer": return { x: 63, y: 50 };
-      case "deserializer": return { x: 74, y: 32 };
-      case "processor": return { x: 84, y: 50 };
-      case "sink": return { x: 94, y: 32 };
-      case "offset": return { x: 84, y: 76 };
-      default: return { x: 4.5, y: 50 };
+      case "consumer": return { x: 57.6, y: 50 };
+      case "deserializer": return { x: 68.6, y: 32 };
+      case "processor": return { x: 78.6, y: 50 };
+      case "sink": return { x: 88.6, y: 32 };
+      case "offset": return { x: 78.6, y: 76 };
+      default: return { x: 8.9, y: 50 };
     }
   }, [activeStep, followerY, leaderY, partitionY]);
 
@@ -777,7 +777,7 @@ export default function Home() {
       <header className="topbar">
         <a className="brand" href="#" aria-label="Kafka Path — главная">
           <span className="brand-mark"><Network size={19} /></span>
-          <span>Kafka Path</span><span className="version">version 0.4.0</span>
+          <span>Kafka Path</span><span className="version">version 0.4.0.1</span>
         </a>
         <div className="header-actions">
           <button className="header-link" onClick={() => setShowGlossary(true)}>
@@ -1780,7 +1780,7 @@ export default function Home() {
       </div>}
 
       {showGlossary && <div className="drawer-backdrop" onMouseDown={() => setShowGlossary(false)}><section className="glossary-modal" role="dialog" aria-modal="true" aria-labelledby="glossary-title" onMouseDown={(event) => event.stopPropagation()}>
-        <div className="drawer-header"><div><span>Учебный словарь · 0.4.0</span><h2 id="glossary-title">Термины Kafka</h2></div><button className="icon-button" onClick={() => setShowGlossary(false)} aria-label="Закрыть словарь"><X size={24} /></button></div>
+        <div className="drawer-header"><div><span>Учебный словарь · 0.4.0.1</span><h2 id="glossary-title">Термины Kafka</h2></div><button className="icon-button" onClick={() => setShowGlossary(false)} aria-label="Закрыть словарь"><X size={24} /></button></div>
         <p className="drawer-intro">Определения привязаны к тому, что можно увидеть и проверить прямо в симуляции.</p>
         <div className="glossary-list">{GLOSSARY.map(([term, definition], index) => <article key={term}><span>{String(index + 1).padStart(2, "0")}</span><div><h3>{term}</h3><p>{definition}</p></div></article>)}</div>
         <div className="next-version"><Sparkles size={18} /><div><strong>Далее · версия 0.4.1</strong><p>Consumer crash, commit timing, lag и rebalance.</p></div><ArrowRight size={17} /></div>
