@@ -46,7 +46,7 @@ test("renders the sandbox, guided-scenario, and constructor entry points", async
   const html = await response.text();
 
   assert.equal(response.status, 200);
-  assert.match(html, /version 0\.6\.0/);
+  assert.match(html, /version 0\.6\.1/);
   assert.match(html, /Свободная песочница/);
   assert.match(html, /Учебные сценарии/);
   assert.match(html, /Конструктор/);
@@ -100,4 +100,20 @@ test("includes the nearby send action and partition storage learning views", asy
   assert.match(source, /\.log/);
   assert.match(source, /\.index/);
   assert.match(source, /\.timeindex/);
+});
+
+test("includes the expanded searchable QA-oriented glossary", async () => {
+  const [simulatorSource, glossarySource] = await Promise.all([
+    readFile(new URL("../app/kafka-path-simulator.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/glossary-data.ts", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(simulatorSource, /Поиск по словарю/);
+  assert.match(simulatorSource, /glossaryCategory/);
+  assert.match(simulatorSource, /Развернуть объяснение/);
+  assert.match(simulatorSource, /Что проверить QA/);
+  assert.match(glossarySource, /qaFocus/);
+  assert.match(glossarySource, /Kafka гарантирует порядок records только в пределах одной partition/);
+  assert.match(glossarySource, /At-least-once/);
+  assert.match(glossarySource, /Log compaction/);
 });

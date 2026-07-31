@@ -4,13 +4,13 @@ import {
   Activity, AlertTriangle, ArrowRight, BookOpen, Boxes, Braces, Check,
   ChevronRight, CirclePause, CirclePlay, CircleX, Database, Gauge,
   FileJson2, FileUp, GitBranch, Info, Layers3, Maximize2, Minimize2, Network,
-  Power, Radio, RefreshCw, RotateCcw, Send, Server, Settings2, ShieldCheck,
+  Power, Radio, RefreshCw, RotateCcw, Search, Send, Server, Settings2, ShieldCheck,
   SkipBack, SkipForward, Sparkles, TimerReset, Users, WifiOff, Workflow, X, Zap,
 } from "lucide-react";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AcksMode, BASE_OFFSETS, BROKER_COUNT, clusterRuntimeForScenario,
-  DeliveryConfig, evaluateDelivery, EventRecord, GLOSSARY, hasProducerResult,
+  DeliveryConfig, evaluateDelivery, EventRecord, hasProducerResult,
   isConsumed, isDeserialized, isFollowerReplicated, isLogVisible,
   isOffsetCommitted, isProcessed, isRetryResolved, isSinkWritten,
   isRecordCommitted, lifecycleForEvent, LifecycleStatus, PARTITION_COUNT,
@@ -18,6 +18,7 @@ import {
   SAME_KEY_VALUES, SCENARIOS, ScenarioId, SimulationStep, STEP_BY_ID,
   stepDisposition, stepOrderForConfig, TOPIC_NAME,
 } from "./simulator-model";
+import { GLOSSARY, GLOSSARY_CATEGORIES, GlossaryCategory } from "./glossary-data";
 import TopologyConstructor from "./topology-constructor";
 
 type LearningMode = "guided" | "sandbox" | "constructor";
@@ -261,6 +262,8 @@ export default function Home() {
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
   const [showGlossary, setShowGlossary] = useState(false);
+  const [glossaryQuery, setGlossaryQuery] = useState("");
+  const [glossaryCategory, setGlossaryCategory] = useState<GlossaryCategory | "Все">("Все");
   const [showSettings, setShowSettings] = useState(false);
   const [showAdvancedConfig, setShowAdvancedConfig] = useState(true);
   const [showClusterFocus, setShowClusterFocus] = useState(false);
@@ -314,6 +317,23 @@ export default function Home() {
       partitionRuntime(partition, deliveryConfig.replicationFactor, clusterRuntime)),
   [clusterRuntime, deliveryConfig.replicationFactor]);
   const focusedPartitionState = partitionStates[focusedPartition];
+  const filteredGlossary = useMemo(() => {
+    const query = glossaryQuery.trim().toLocaleLowerCase("ru-RU");
+    return GLOSSARY.filter((entry) => {
+      const categoryMatches = glossaryCategory === "Все" || entry.category === glossaryCategory;
+      if (!categoryMatches) return false;
+      if (!query) return true;
+      const searchable = [
+        entry.term,
+        ...entry.aliases,
+        entry.summary,
+        entry.howItWorks,
+        entry.example,
+        entry.qaFocus,
+      ].join(" ").toLocaleLowerCase("ru-RU");
+      return searchable.includes(query);
+    });
+  }, [glossaryCategory, glossaryQuery]);
   const previewResult = evaluateDelivery(
     deliveryConfig,
     previewPartition,
@@ -903,7 +923,7 @@ export default function Home() {
       <header className="topbar">
         <a className="brand" href="#" aria-label="Kafka Path — главная">
           <span className="brand-mark"><Network size={19} /></span>
-          <span>Kafka Path</span><span className="version">version 0.6.0.1</span>
+          <span>Kafka Path</span><span className="version">version 0.6.1</span>
         </a>
         <div className="header-actions">
           <button className="header-link" onClick={() => setShowGlossary(true)}>
@@ -2080,10 +2100,41 @@ export default function Home() {
       </div>}
 
       {showGlossary && <div className="drawer-backdrop" onMouseDown={() => setShowGlossary(false)}><section className="glossary-modal" role="dialog" aria-modal="true" aria-labelledby="glossary-title" onMouseDown={(event) => event.stopPropagation()}>
-        <div className="drawer-header"><div><span>Словарь Kafka Path · 0.6.0.1</span><h2 id="glossary-title">Термины Kafka</h2></div><button className="icon-button" onClick={() => setShowGlossary(false)} aria-label="Закрыть словарь"><X size={24} /></button></div>
-        <p className="drawer-intro">Определения привязаны к тому, что можно увидеть и проверить прямо в симуляции.</p>
-        <div className="glossary-list">{GLOSSARY.map(([term, definition], index) => <article key={term}><span>{String(index + 1).padStart(2, "0")}</span><div><h3>{term}</h3><p>{definition}</p></div></article>)}</div>
-        <div className="next-version"><Sparkles size={18} /><div><strong>Далее · развитие лаборатории</strong><p>Consumer crash, commit timing, lag, rebalance и DLQ как сценарии и ручные переключатели системы.</p></div><ArrowRight size={17} /></div>
+        <div className="drawer-header"><div><span>Словарь Kafka Path · 0.6.1</span><h2 id="glossary-title">Термины Kafka</h2></div><button className="icon-button" onClick={() => setShowGlossary(false)} aria-label="Закрыть словарь"><X size={24} /></button></div>
+        <p className="drawer-intro">Короткая суть видна сразу. Откройте карточку, чтобы разобрать механику, пример в лаборатории и то, что важно проверить тестировщику.</p>
+
+        <div className="glossary-toolbar">
+          <label className="glossary-search">
+            <Search size={18} aria-hidden="true" />
+            <input value={glossaryQuery} onChange={(event) => setGlossaryQuery(event.target.value)} placeholder="Найти: offset, retry, lag…" aria-label="Поиск по словарю" />
+            {glossaryQuery && <button type="button" onClick={() => setGlossaryQuery("")} aria-label="Очистить поиск"><X size={16} /></button>}
+          </label>
+          <div className="glossary-count"><strong>{filteredGlossary.length}</strong><span>из {GLOSSARY.length} терминов</span></div>
+        </div>
+
+        <div className="glossary-categories" aria-label="Категории словаря">
+          {(["Все", ...GLOSSARY_CATEGORIES] as const).map((category) => <button type="button" key={category} className={glossaryCategory === category ? "active" : ""} onClick={() => setGlossaryCategory(category)} aria-pressed={glossaryCategory === category}>{category}</button>)}
+        </div>
+
+        {filteredGlossary.length > 0 ? <div className="glossary-list">
+          {filteredGlossary.map((entry, index) => <article key={entry.term}>
+            <span className="glossary-number">{String(index + 1).padStart(2, "0")}</span>
+            <div className="glossary-entry">
+              <div className="glossary-entry-heading"><div><span className="glossary-category">{entry.category}</span><h3>{entry.term}</h3></div></div>
+              <p className="glossary-summary">{entry.summary}</p>
+              <details className="glossary-details">
+                <summary><span>Развернуть объяснение</span><ChevronRight size={16} /></summary>
+                <div className="glossary-detail-grid">
+                  <section><strong>Как это работает</strong><p>{entry.howItWorks}</p></section>
+                  <section><strong>Пример в Kafka Path</strong><p>{entry.example}</p></section>
+                  <section className="qa-focus"><strong>Что проверить QA</strong><p>{entry.qaFocus}</p></section>
+                </div>
+              </details>
+            </div>
+          </article>)}
+        </div> : <div className="glossary-empty"><Search size={24} /><strong>Ничего не найдено</strong><p>Попробуйте другой термин или выберите категорию «Все».</p><button type="button" onClick={() => { setGlossaryQuery(""); setGlossaryCategory("Все"); }}>Сбросить фильтры</button></div>}
+
+        <div className="next-version glossary-note"><BookOpen size={18} /><div><strong>Словарь связан с лабораторией</strong><p>Примеры используют те же P0–P2, Brokers, offsets, ACK и consumer group, которые отображаются в симуляции.</p></div><ArrowRight size={17} /></div>
       </section></div>}
     </main>
   );

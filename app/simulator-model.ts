@@ -487,30 +487,6 @@ export const SAME_KEY_VALUES = [
   '{"orderId":8421,"status":"shipped"}',
 ] as const;
 
-export const GLOSSARY = [
-  ["Topic", "Логическое имя потока событий. В песочнице название topic задаёт пользователь."],
-  ["Partition", "Упорядоченный append-only журнал внутри topic со своей нумерацией offset."],
-  ["Leader replica", "Копия partition на Broker, которая принимает запись от Producer."],
-  ["Follower replica", "Копия той же partition, которая синхронизируется с Leader."],
-  ["Offset", "Позиция event внутри конкретной partition, а не глобальный номер в topic."],
-  ["ISR", "In-sync replicas — реплики, которые Kafka считает синхронизированными с Leader."],
-  ["acks", "Условие подтверждения Producer: не ждать ответ, дождаться Leader или всех реплик текущего ISR."],
-  ["min.insync.replicas", "Минимальный размер ISR, при котором запись с acks=all разрешена."],
-  ["Replication factor", "Сколько физических копий каждой partition должно существовать в кластере."],
-  ["Idempotence", "Защита от дублей из-за повторной отправки Producer; требует совместимых acks и retries."],
-  ["Committed record", "Запись, находящаяся у всех реплик текущего ISR и доступная для чтения."],
-  ["Consumer offset", "Сохранённая позиция consumer group для продолжения чтения."],
-  ["Leader election", "Выбор новой leader-replica среди доступных синхронных replicas после отказа текущего Leader."],
-  ["Catching up", "Broker уже доступен, но его replica ещё догоняет журнал Leader и пока не входит в ISR."],
-  ["Producer ID", "Идентификатор idempotent Producer, по которому Broker отличает его последовательность запросов."],
-  ["Sequence number", "Порядковый номер записи внутри Producer. Retry сохраняет тот же sequence, поэтому Broker может распознать повтор."],
-  ["Duplicate", "Второй record с тем же бизнес-событием, но новым offset, появившийся из-за повторной отправки."],
-  ["Ambiguous result", "Producer получил timeout и не знает итог, хотя Broker уже мог сохранить record."],
-  ["Deserialization", "Преобразование bytes из Kafka record в объект приложения с проверкой формата или schema."],
-  ["Side effect", "Наблюдаемый результат обработки вне Kafka, например запись заказа в PostgreSQL."],
-  ["__consumer_offsets", "Внутренний compacted topic Kafka, где consumer group хранит committed offsets."],
-] as const;
-
 export function hashKey(value: string) {
   let hash = 0;
   for (let index = 0; index < value.length; index += 1) {
