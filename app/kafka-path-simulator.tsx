@@ -5,7 +5,7 @@ import {
   ChevronRight, CirclePause, CirclePlay, CircleX, Database, Gauge,
   FileJson2, FileUp, GitBranch, Info, Layers3, Maximize2, Minimize2, Network,
   Power, Radio, RefreshCw, RotateCcw, Send, Server, Settings2, ShieldCheck,
-  SkipBack, SkipForward, Sparkles, TimerReset, Users, WifiOff, X, Zap,
+  SkipBack, SkipForward, Sparkles, TimerReset, Users, WifiOff, Workflow, X, Zap,
 } from "lucide-react";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -18,6 +18,9 @@ import {
   SAME_KEY_VALUES, SCENARIOS, ScenarioId, SimulationStep, STEP_BY_ID,
   stepDisposition, stepOrderForConfig, TOPIC_NAME,
 } from "./simulator-model";
+import TopologyConstructor from "./topology-constructor";
+
+type LearningMode = "guided" | "sandbox" | "constructor";
 
 const PARTITION_Y = [31, 50, 69] as const;
 const BROKER_Y = [28, 50, 72] as const;
@@ -241,7 +244,7 @@ function copyForStep(event: EventRecord | null, step: SimulationStep | null) {
 export default function Home() {
   const [scenarioId, setScenarioId] = useState<ScenarioId>("happy-path");
   const scenario = SCENARIOS.find((item) => item.id === scenarioId) ?? SCENARIOS[0];
-  const [learningMode, setLearningMode] = useState<"guided" | "sandbox">("sandbox");
+  const [learningMode, setLearningMode] = useState<LearningMode>("sandbox");
   const [eventKey, setEventKey] = useState(scenario.defaultKey);
   const [eventValue, setEventValue] = useState(scenario.defaultValue);
   const [messageKind, setMessageKind] = useState<"event" | "file">("event");
@@ -550,9 +553,13 @@ export default function Home() {
     keylessCounter.current = 0;
   };
 
-  const chooseLearningMode = (mode: "guided" | "sandbox") => {
+  const chooseLearningMode = (mode: LearningMode) => {
     if (mode === learningMode) return;
     setLearningMode(mode);
+    if (mode === "constructor") {
+      setPlaying(false);
+      return;
+    }
     setMessageKind("event"); setFileMeta(null);
     setTopicName(TOPIC_NAME);
     setEventName(mode === "guided" ? "OrderEvent" : eventName || "OrderEvent");
@@ -651,10 +658,11 @@ export default function Home() {
   };
 
   const restoreScenarioConfig = () => {
-    setDeliveryConfig({ ...scenario.config });
-    setFaultMode(scenario.faultMode);
+    const defaultStand = SCENARIOS[0];
+    setDeliveryConfig({ ...defaultStand.config });
+    setFaultMode("none");
     setConfigErrorAccepted(false);
-    applyScenarioCluster(scenario);
+    applyScenarioCluster(defaultStand);
     resetScenario();
   };
 
@@ -872,8 +880,7 @@ export default function Home() {
   };
 
   const inputReady = Boolean(topicName.trim() && eventName.trim() && eventValue.trim());
-  const canLaunch = canSend && inputReady
-    && (isGuided || previewResult.configValid || configErrorAccepted);
+  const canLaunch = canSend && inputReady;
   const selectedHasReached = (stepId: keyof typeof lifecycleLabels) => {
     if (!selectedEvent) return false;
     const position = selectedEvent.stepOrder.indexOf(stepId);
@@ -887,12 +894,16 @@ export default function Home() {
     ? (activeEvent.stage / (activeEvent.stepOrder.length - 1)) * (100 - timelineInset * 2)
     : 0;
 
+  if (learningMode === "constructor") {
+    return <TopologyConstructor onModeChange={chooseLearningMode} />;
+  }
+
   return (
     <main className="app-shell">
       <header className="topbar">
         <a className="brand" href="#" aria-label="Kafka Path — главная">
           <span className="brand-mark"><Network size={19} /></span>
-          <span>Kafka Path</span><span className="version">version 0.5.3</span>
+          <span>Kafka Path</span><span className="version">version 0.6.0</span>
         </a>
         <div className="header-actions">
           <button className="header-link" onClick={() => setShowGlossary(true)}>
@@ -922,7 +933,7 @@ export default function Home() {
           </div>
         </div>
 
-        <section className="learning-mode-switch" aria-label="Режим работы симулятора">
+        <section className="learning-mode-switch three-modes" aria-label="Режим работы симулятора">
           <button
             className={!isGuided ? "active sandbox" : "sandbox"}
             aria-pressed={!isGuided}
@@ -940,6 +951,14 @@ export default function Home() {
             <span><Sparkles size={19} /></span>
             <div><strong>Учебные сценарии</strong><small>10 готовых ситуаций из версии 0.4.0.1</small></div>
             {isGuided && <Check size={18} />}
+          </button>
+          <button
+            className="constructor"
+            aria-pressed="false"
+            onClick={() => chooseLearningMode("constructor")}
+          >
+            <span><Workflow size={19} /></span>
+            <div><strong>Конструктор</strong><small>Своя топология, replicas и цепочка</small></div>
           </button>
           <div className={`mode-explanation ${isGuided ? "guided" : "sandbox"}`}>
             <strong>{isGuided ? "Preset сценария применён автоматически" : "Вы управляете входными данными и конфигурацией"}</strong>
@@ -1157,7 +1176,7 @@ export default function Home() {
           ) : (
             <div className="sandbox-config-actions">
               <div><Settings2 size={17} /><span>Ручной режим: изменения относятся только к текущему эксперименту.</span></div>
-              <button onClick={restoreScenarioConfig}><RotateCcw size={15} /> Вернуть рабочие настройки</button>
+              <button onClick={restoreScenarioConfig}><RotateCcw size={15} /> Сбросить настройки стенда</button>
             </div>
           )}
 
@@ -1169,12 +1188,10 @@ export default function Home() {
                   ? "Ошибка оставлена для учебного эксперимента"
                   : "Конфликт настроек Producer"}</strong>
                 {previewResult.configErrors.map((error) => <span key={error}>{error}</span>)}
-                {!configErrorAccepted && <div className="config-error-actions">
+                <div className="config-error-actions">
                   <button onClick={autoFixConfig}><Check size={14} /> Исправить автоматически</button>
-                  <button onClick={() => setConfigErrorAccepted(true)}>
-                    <AlertTriangle size={14} /> Оставить и изучить ошибку
-                  </button>
-                </div>}
+                  <span><AlertTriangle size={14} /> Отправка разрешена: Producer вернёт ConfigException.</span>
+                </div>
               </div>
             </div>
           )}
@@ -2063,7 +2080,7 @@ export default function Home() {
       </div>}
 
       {showGlossary && <div className="drawer-backdrop" onMouseDown={() => setShowGlossary(false)}><section className="glossary-modal" role="dialog" aria-modal="true" aria-labelledby="glossary-title" onMouseDown={(event) => event.stopPropagation()}>
-        <div className="drawer-header"><div><span>Словарь Kafka Path · 0.5.3</span><h2 id="glossary-title">Термины Kafka</h2></div><button className="icon-button" onClick={() => setShowGlossary(false)} aria-label="Закрыть словарь"><X size={24} /></button></div>
+        <div className="drawer-header"><div><span>Словарь Kafka Path · 0.6.0</span><h2 id="glossary-title">Термины Kafka</h2></div><button className="icon-button" onClick={() => setShowGlossary(false)} aria-label="Закрыть словарь"><X size={24} /></button></div>
         <p className="drawer-intro">Определения привязаны к тому, что можно увидеть и проверить прямо в симуляции.</p>
         <div className="glossary-list">{GLOSSARY.map(([term, definition], index) => <article key={term}><span>{String(index + 1).padStart(2, "0")}</span><div><h3>{term}</h3><p>{definition}</p></div></article>)}</div>
         <div className="next-version"><Sparkles size={18} /><div><strong>Далее · развитие лаборатории</strong><p>Consumer crash, commit timing, lag, rebalance и DLQ как сценарии и ручные переключатели системы.</p></div><ArrowRight size={17} /></div>

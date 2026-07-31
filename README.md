@@ -1,13 +1,15 @@
-# Kafka Path 0.5.3 — Scenarios + Sandbox Labs
+# Kafka Path 0.6.0 — Scenarios + Sandbox + Topology Constructor
 
 Интерактивная лаборатория Kafka на React, TypeScript и Vinext.
 
-Версия 0.5.3 объединяет два режима в одной визуальной системе:
+Версия 0.6.0 объединяет три режима в одной визуальной системе:
 
 - **Свободная песочница** — собственный event или локальный файл, topic, key,
   headers, payload и ручные настройки Kafka;
 - **Учебные сценарии** — 10 готовых ситуаций из версии 0.4.0.1 с presets,
-  объяснениями и ожидаемым результатом.
+  объяснениями и ожидаемым результатом;
+- **Конструктор** — собственная перетаскиваемая топология из Producer, Topic,
+  Broker, Consumer и Database с ручным размещением partition replicas.
 
 Оба режима используют одну end-to-end цепочку:
 
@@ -45,6 +47,19 @@ Preset сценария можно перенести в песочницу кн
 
 Файл не загружается на сервер. Текстовые данные до 256 KB читаются локально,
 а для крупных или бинарных файлов симулятор формирует metadata record.
+
+## Конструктор топологии
+
+- готовый стенд или полностью пустой холст;
+- добавление и перетаскивание Producer, Topic, Broker, Consumer и Database;
+- направленные связи между узлами;
+- настройка `acks`, retries, idempotence, partition count и
+  `min.insync.replicas`;
+- размещение Leader/Follower replicas внутри конкретных Broker и управление ISR;
+- включение и остановка Broker;
+- автоматическая проверка связей, Leader, ISR и Producer config;
+- запуск event по фактически собранному маршруту;
+- сохранение и загрузка читаемой конфигурации `.txt`.
 
 ## Наблюдение и ручное управление
 
@@ -99,7 +114,7 @@ Workflow уже находится в `.github/workflows/deploy-pages.yml`.
 
 ```bash
 git add -A
-git commit -m "Release 0.5.3 partition storage"
+git commit -m "Release 0.6.0 topology constructor"
 git push origin main
 ```
 
@@ -109,6 +124,7 @@ git push origin main
 ## Основные файлы
 
 - `app/kafka-path-simulator.tsx` — интерфейс и интерактивная логика;
+- `app/topology-constructor.tsx` — холст, topology validation и запуск event;
 - `app/simulator-model.ts` — модель Kafka, состояния и вычисления;
 - `app/globals.css` — визуальная система и responsive layout;
 - `app/page.tsx` — статическая оболочка страницы;
