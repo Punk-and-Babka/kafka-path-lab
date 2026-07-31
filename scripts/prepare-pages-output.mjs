@@ -11,11 +11,8 @@ async function htmlFiles(directory) {
 
   for (const entry of entries) {
     const path = join(directory, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...(await htmlFiles(path)));
-    } else if (entry.isFile() && entry.name.endsWith(".html")) {
-      files.push(path);
-    }
+    if (entry.isDirectory()) files.push(...(await htmlFiles(path)));
+    else if (entry.isFile() && entry.name.endsWith(".html")) files.push(path);
   }
 
   return files;
@@ -25,19 +22,10 @@ for (const file of await htmlFiles(outputDirectory)) {
   const html = await readFile(file, "utf8");
   const fontDirectory = `${basePath}/assets/_vinext_fonts/`;
   const prepared = html
-    .replace(
-      /href="[^"]*?\/\.vinext\/fonts\//g,
-      `href="${fontDirectory}`,
-    )
-    .replace(
-      /url\((?:"|')?[^)"']*?\/\.vinext\/fonts\//g,
-      `url(${fontDirectory}`,
-    );
+    .replace(/href="[^"]*?\/\.vinext\/fonts\//g, `href="${fontDirectory}`)
+    .replace(/url\((?:"|')?[^)"']*?\/\.vinext\/fonts\//g, `url(${fontDirectory}`);
 
-  if (prepared.includes("/.vinext/fonts/")) {
-    throw new Error(`Unresolved vinext font path in ${file}`);
-  }
-
+  if (prepared.includes("/.vinext/fonts/")) throw new Error(`Unresolved vinext font path in ${file}`);
   await writeFile(file, prepared);
 }
 

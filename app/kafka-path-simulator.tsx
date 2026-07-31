@@ -3,7 +3,7 @@
 import {
   Activity, AlertTriangle, ArrowRight, BookOpen, Boxes, Braces, Check,
   ChevronRight, CirclePause, CirclePlay, CircleX, Database, Gauge,
-  GitBranch, Info, Layers3, Maximize2, Minimize2, Network,
+  FileJson2, FileUp, Info, Layers3, Maximize2, Minimize2, Network,
   Power, Radio, RefreshCw, RotateCcw, Send, Server, Settings2, ShieldCheck,
   SkipBack, SkipForward, Sparkles, TimerReset, Users, WifiOff, X, Zap,
 } from "lucide-react";
@@ -220,12 +220,16 @@ function copyForStep(event: EventRecord | null, step: SimulationStep | null) {
   };
 }
 
-export default function KafkaPathSimulator() {
+export default function Home() {
   const [scenarioId, setScenarioId] = useState<ScenarioId>("happy-path");
   const scenario = SCENARIOS.find((item) => item.id === scenarioId) ?? SCENARIOS[0];
-  const [learningMode, setLearningMode] = useState<"guided" | "sandbox">("guided");
   const [eventKey, setEventKey] = useState(scenario.defaultKey);
   const [eventValue, setEventValue] = useState(scenario.defaultValue);
+  const [messageKind, setMessageKind] = useState<"event" | "file">("event");
+  const [eventName, setEventName] = useState("OrderCreated");
+  const [topicName, setTopicName] = useState(TOPIC_NAME);
+  const [eventHeaders, setEventHeaders] = useState("content-type=application/json, source=manual-lab");
+  const [fileMeta, setFileMeta] = useState<{ name: string; type: string; size: number } | null>(null);
   const [deliveryConfig, setDeliveryConfig] = useState<DeliveryConfig>({ ...scenario.config });
   const [faultMode, setFaultMode] = useState<NetworkFaultMode>(scenario.faultMode);
   const [configErrorAccepted, setConfigErrorAccepted] = useState(false);
@@ -236,6 +240,7 @@ export default function KafkaPathSimulator() {
   const [speed, setSpeed] = useState(1);
   const [showGlossary, setShowGlossary] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showAdvancedConfig, setShowAdvancedConfig] = useState(false);
   const [showClusterFocus, setShowClusterFocus] = useState(false);
   const [selectedPartition, setSelectedPartition] = useState<number | null>(null);
   const [selectedBroker, setSelectedBroker] = useState<number | null>(null);
@@ -326,7 +331,7 @@ export default function KafkaPathSimulator() {
   const activeDisposition = activeEvent && activeStep
     ? stepDisposition(activeEvent, activeStep.id)
     : null;
-  const isGuided = learningMode === "guided";
+  const isGuided = false;
   const retryResult = selectedEvent?.result ?? previewResult;
   const retryFault = selectedEvent?.faultMode ?? faultMode;
   const retryStageReached = Boolean(selectedEvent && isRetryResolved(selectedEvent));
@@ -496,19 +501,6 @@ export default function KafkaPathSimulator() {
     keylessCounter.current = 0;
   };
 
-  const chooseLearningMode = (mode: "guided" | "sandbox") => {
-    if (mode === learningMode) return;
-    setLearningMode(mode);
-    setDeliveryConfig({ ...scenario.config });
-    setFaultMode(scenario.faultMode);
-    setConfigErrorAccepted(false);
-    setEvents([]); setActiveEventId(null); setSelectedEventId(null);
-    setPlaying(false); setShowSettings(false); setInspectorTab("delivery");
-    setEventKey(scenario.defaultKey); setEventValue(scenario.defaultValue);
-    applyScenarioCluster(scenario);
-    keylessCounter.current = 0;
-  };
-
   const sendEvent = () => {
     if (!canSend) return;
     const sequence = scenarioId === "same-key" ? sameKeyCount : events.length;
@@ -522,7 +514,15 @@ export default function KafkaPathSimulator() {
     const delivery = { ...deliveryConfig };
     const result = evaluateDelivery(delivery, partition, clusterRuntime, faultMode);
     const nextEvent: EventRecord = {
-      id, key, value, partition, offset, stage: 0, scenarioId, sequence,
+      id,
+      topic: topicName.trim(),
+      name: eventName.trim(),
+      kind: messageKind,
+      headers: eventHeaders.trim(),
+      fileName: fileMeta?.name ?? null,
+      mimeType: fileMeta?.type || null,
+      fileSize: fileMeta?.size ?? null,
+      key, value, partition, offset, stage: 0, scenarioId, sequence,
       createdAt: formatTime(new Date()), delivery, result,
       stepOrder: stepOrderForConfig(delivery, faultMode),
       faultMode,
@@ -542,8 +542,40 @@ export default function KafkaPathSimulator() {
 
   const resetScenario = () => {
     setEvents([]); setActiveEventId(null); setSelectedEventId(null);
-    setPlaying(false); setEventKey(scenario.defaultKey); setEventValue(scenario.defaultValue);
+    setPlaying(false);
     setShowSettings(false); setCopied(false); keylessCounter.current = 0;
+  };
+
+  const changeMessageKind = (kind: "event" | "file") => {
+    setMessageKind(kind);
+    setFileMeta(null);
+    if (kind === "event") {
+      setEventName("OrderCreated");
+      setEventValue('{"orderId": 8421, "status": "CREATED", "amount": 12990}');
+      setEventHeaders("content-type=application/json, source=manual-lab");
+    } else {
+      setEventName("FileReceived");
+      setEventValue("");
+      setEventHeaders("content-type=application/octet-stream, source=file-gateway");
+    }
+  };
+
+  const handleFileSelect = async (file: File | null) => {
+    if (!file) return;
+    setFileMeta({ name: file.name, type: file.type || "application/octet-stream", size: file.size });
+    setEventName("FileReceived");
+    setEventHeaders(`content-type=${file.type || "application/octet-stream"}, source=file-gateway`);
+    const textLike = file.type.startsWith("text/") || file.type.includes("json") || file.type.includes("xml");
+    if (textLike && file.size <= 256_000) {
+      setEventValue(await file.text());
+      return;
+    }
+    setEventValue(JSON.stringify({
+      fileName: file.name,
+      contentType: file.type || "application/octet-stream",
+      sizeBytes: file.size,
+      storageRef: `sandbox://${file.name}`,
+    }));
   };
 
   const restoreScenarioConfig = () => {
@@ -757,7 +789,8 @@ export default function KafkaPathSimulator() {
     });
   };
 
-  const canLaunch = canSend
+  const inputReady = Boolean(topicName.trim() && eventName.trim() && eventValue.trim());
+  const canLaunch = canSend && inputReady
     && (isGuided || previewResult.configValid || configErrorAccepted);
   const selectedHasReached = (stepId: keyof typeof lifecycleLabels) => {
     if (!selectedEvent) return false;
@@ -777,15 +810,14 @@ export default function KafkaPathSimulator() {
       <header className="topbar">
         <a className="brand" href="#" aria-label="Kafka Path — главная">
           <span className="brand-mark"><Network size={19} /></span>
-          <span>Kafka Path</span><span className="version">version 0.4.0.1</span>
+          <span>Kafka Path</span><span className="version">version 0.5.0</span>
         </a>
         <div className="header-actions">
           <button className="header-link" onClick={() => setShowGlossary(true)}>
             <BookOpen size={16} /> Словарь
           </button>
-          <span className={`mode-pill ${isGuided ? "" : "sandbox"}`}>
-            {isGuided ? <Sparkles size={14} /> : <Settings2 size={14} />}
-            {isGuided ? "Учебный сценарий" : "Песочница"}
+          <span className="mode-pill sandbox">
+            <Settings2 size={14} /> Sandbox
           </span>
         </div>
       </header>
@@ -793,9 +825,9 @@ export default function KafkaPathSimulator() {
       <section className="workspace">
         <div className="intro-row">
           <div>
-            <p className="eyebrow"><Activity size={14} /> End-to-end event chain</p>
-            <h1>Полный путь event: от Producer до БД и commit offset</h1>
-            <p>Следите за длинной цепочкой из одиннадцати этапов: routing, append, replication, ACK, fetch, decode, бизнес-обработка, запись результата и offset commit. Retry, idempotence и управление Broker сохранены.</p>
+            <p className="eyebrow"><Activity size={14} /> Free Kafka sandbox</p>
+            <h1>Отправьте свои данные в рабочую систему</h1>
+            <p>Без готовых сценариев: создайте event или выберите файл, настройте Producer и наблюдайте, как данные проходят routing, append, replication, ACK, Consumer, обработчик, БД и commit offset.</p>
           </div>
           <div className="cluster-summary">
             <span><Server size={15} /> {onlineBrokers.length}/3 online</span>
@@ -805,83 +837,61 @@ export default function KafkaPathSimulator() {
           </div>
         </div>
 
-        <section className="learning-mode-switch" aria-label="Режим работы симулятора">
-          <button
-            className={isGuided ? "active" : ""}
-            aria-pressed={isGuided}
-            onClick={() => chooseLearningMode("guided")}
-          >
-            <span><Sparkles size={19} /></span>
-            <div>
-              <strong>Учебные сценарии</strong>
-              <small>Готовые корректные настройки — можно сразу запускать</small>
+        <section className="sandbox-system" aria-label="Состояние рабочей системы">
+          <div className="system-live"><i /><span><strong>Система работает</strong><small>Producer, Kafka cluster, Consumer и service_db доступны</small></span></div>
+          <div className="system-path"><span>INPUT</span><ArrowRight size={14} /><b>{topicName || TOPIC_NAME}</b><ArrowRight size={14} /><span>PROCESSING</span><ArrowRight size={14} /><span>RESULT</span></div>
+          <p>Это не сценарий с заранее известным ответом. Вы задаёте входные данные и сами проверяете факты на каждом этапе.</p>
+        </section>
+
+        <section className="sandbox-composer" aria-label="Создание входных данных">
+          <header>
+            <div><span>NEW INPUT</span><h2>Что отправляем в систему?</h2></div>
+            <div className="message-kind" role="group" aria-label="Тип сообщения">
+              <button className={messageKind === "event" ? "active" : ""} onClick={() => changeMessageKind("event")}><FileJson2 size={16} /> Event</button>
+              <button className={messageKind === "file" ? "active" : ""} onClick={() => changeMessageKind("file")}><FileUp size={16} /> Файл</button>
             </div>
-            {isGuided && <Check size={18} />}
-          </button>
-          <button
-            className={!isGuided ? "active sandbox" : "sandbox"}
-            aria-pressed={!isGuided}
-            onClick={() => chooseLearningMode("sandbox")}
-          >
-            <span><Settings2 size={19} /></span>
-            <div>
-              <strong>Свободная песочница</strong>
-              <small>Меняйте всё и изучайте ошибки конфигурации</small>
-            </div>
-            {!isGuided && <Check size={18} />}
-          </button>
-          <div className={`mode-explanation ${isGuided ? "guided" : "sandbox"}`}>
-            <strong>{isGuided ? "Сценарий защищён от случайных изменений" : "Вы управляете конфигурацией"}</strong>
-            <span>{isGuided
-              ? "При выборе карточки Kafka Path автоматически применяет подходящий preset."
-              : "Карточка сценария задаёт стартовый preset, после чего его можно изменять вручную."}</span>
+          </header>
+          <div className="composer-fields">
+            <div className="field-group"><label htmlFor="topic-name">Topic</label><input id="topic-name" value={topicName} onChange={(event) => setTopicName(event.target.value)} placeholder="orders.events" /></div>
+            <div className="field-group"><label htmlFor="event-name">Event name</label><input id="event-name" value={eventName} onChange={(event) => setEventName(event.target.value)} placeholder="OrderCreated" /></div>
+            <div className="field-group"><label htmlFor="event-key">Key · optional</label><input id="event-key" value={eventKey} onChange={(event) => setEventKey(event.target.value)} placeholder="order-8421" /></div>
+            <div className="field-group headers-field"><label htmlFor="event-headers">Headers</label><input id="event-headers" value={eventHeaders} onChange={(event) => setEventHeaders(event.target.value)} placeholder="traceId=..., source=..." /></div>
           </div>
+          <div className="composer-payload-row">
+            {messageKind === "event" ? (
+              <div className="field-group payload-field"><label htmlFor="event-value">Payload · JSON or text</label><textarea id="event-value" value={eventValue} onChange={(event) => setEventValue(event.target.value)} spellCheck={false} /></div>
+            ) : (
+              <label className={`file-picker ${fileMeta ? "selected" : ""}`}>
+                <input type="file" onChange={(event) => void handleFileSelect(event.target.files?.[0] ?? null)} />
+                <FileUp size={24} />
+                <span><strong>{fileMeta?.name ?? "Выберите файл"}</strong><small>{fileMeta ? `${fileMeta.type || "application/octet-stream"} · ${Math.max(1, Math.round(fileMeta.size / 1024))} KB` : "Файл остаётся на вашем устройстве; симулятор читает только локальную копию"}</small></span>
+              </label>
+            )}
+            <div className="delivery-target">
+              <span>{faultMode === "none" ? "Ожидаемый маршрут" : "Инъекция сбоя"}</span>
+              <strong>P{previewPartition} → Broker {previewResult.leaderBroker}</strong>
+              <small>{faultMode === "none" ? `key ${eventKey.trim() ? "→ stable hash" : "null → round-robin"}` : faultMode === "ack-lost" ? "ACK LOST" : "REQUEST LOST"}</small>
+            </div>
+            <button className="send-button" onClick={sendEvent} disabled={!canLaunch}><Send size={17} /> Отправить в систему</button>
+          </div>
+          {!inputReady && <p className="composer-warning"><Info size={14} /> Укажите topic, имя события и payload либо выберите файл.</p>}
         </section>
 
-        <div className="scenario-labels">
-          <span>{isGuided ? "Основы 0.2" : "Базовые presets"}</span>
-          <span>{isGuided ? "End-to-end chain 0.4" : "Presets доставки"}</span>
-          <span>{isGuided ? "Cluster resilience 0.3.2" : "Presets отказов"}</span>
-          <span>{isGuided ? "Retries 0.3.3" : "Presets сети"}</span>
-        </div>
-        <nav className="scenario-switcher" aria-label={isGuided ? "Учебные сценарии" : "Стартовые presets"}>
-          {SCENARIOS.map((item, index) => (
-            <button
-              key={item.id}
-              className={`${scenarioId === item.id ? "active" : ""} ${item.group}`}
-              onClick={() => chooseScenario(item.id)}
-            >
-              <span>{String(index + 1).padStart(2, "0")}</span>
-              <div><strong>{item.title}</strong><small>{item.description}</small></div>
-              {scenarioId === item.id && <Check size={16} />}
-            </button>
-          ))}
-        </nav>
+        <button className={`advanced-toggle ${showAdvancedConfig ? "active" : ""}`} onClick={() => setShowAdvancedConfig((value) => !value)}>
+          <Settings2 size={17} /><span><strong>Настройки системы и ручные сбои</strong><small>acks, retries, idempotence, Broker, ISR и сетевые ошибки</small></span><ChevronRight size={17} />
+        </button>
 
-        <section className="scenario-brief">
-          <div className="brief-icon"><GitBranch size={18} /></div>
-          <div><span>{scenario.badge}</span><strong>{scenario.lesson}</strong></div>
-          {scenarioId === "same-key" && <div className="scenario-progress">
-            {SAME_KEY_VALUES.map((_, index) => <i key={index} className={index < sameKeyCount ? "complete" : ""}>
-              {index < sameKeyCount ? <Check size={10} /> : index + 1}
-            </i>)}
-          </div>}
-        </section>
+        {showAdvancedConfig && <>
 
         <section className="delivery-lab" aria-label="Настройки доставки Producer">
           <header className="delivery-lab-heading">
             <div>
-              <span>{isGuided ? <ShieldCheck size={16} /> : <Settings2 size={16} />}
-                {isGuided ? "SCENARIO PRESET" : "DELIVERY SETTINGS"}</span>
-              <h2>{isGuided
-                ? "Настройки применены автоматически"
-                : "Измените конфигурацию и сравните результат"}</h2>
+              <span><Settings2 size={16} /> DELIVERY SETTINGS</span>
+              <h2>Измените конфигурацию рабочей системы</h2>
             </div>
             <div className={`config-health ${isGuided || previewResult.configValid ? "valid" : "invalid"}`}>
               {isGuided || previewResult.configValid ? <Check size={16} /> : <CircleX size={16} />}
-              {isGuided
-                ? "Preset сценария активен"
-                : previewResult.configValid ? "Конфигурация совместима" : "ConfigException"}
+              {previewResult.configValid ? "Конфигурация совместима" : "ConfigException"}
             </div>
           </header>
 
@@ -956,24 +966,10 @@ export default function KafkaPathSimulator() {
             </div>
           </div>
 
-          {isGuided ? (
-            <div className="guided-config-note">
-              <ShieldCheck size={18} />
-              <div>
-                <strong>Параметры соответствуют сценарию «{scenario.title}»</strong>
-                <span>Они доступны для просмотра, но не изменяются в учебном режиме.</span>
-              </div>
-              <button onClick={() => chooseLearningMode("sandbox")}>Открыть песочницу</button>
-            </div>
-          ) : (
-            <div className="sandbox-config-actions">
-              <div>
-                <Settings2 size={17} />
-                <span>Ручной режим: изменения относятся только к текущему эксперименту.</span>
-              </div>
-              <button onClick={restoreScenarioConfig}><RotateCcw size={15} /> Восстановить preset</button>
-            </div>
-          )}
+          <div className="sandbox-config-actions">
+            <div><Settings2 size={17} /><span>Ручной режим: изменения относятся только к текущему эксперименту.</span></div>
+            <button onClick={restoreScenarioConfig}><RotateCcw size={15} /> Вернуть рабочие настройки</button>
+          </div>
 
           {!isGuided && !previewResult.configValid && (
             <div className={`config-errors ${configErrorAccepted ? "accepted" : ""}`}>
@@ -1038,7 +1034,7 @@ export default function KafkaPathSimulator() {
             <div>
               <span><Radio size={16} /> NETWORK & RETRY LAB · 0.3.3</span>
               <h2>Выберите, где оборвётся первая попытка</h2>
-              <p>В учебном режиме используется безопасный preset сценария. В песочнице сетевой сбой можно менять отдельно от конфигурации Producer.</p>
+              <p>Сетевой сбой можно включить вручную и сравнить фактическую запись в Kafka с тем, что увидел Producer.</p>
             </div>
             <div className="retry-heading-actions">
               {(scenarioId === "ack-lost-duplicate" || scenarioId === "ack-lost-idempotent") && (
@@ -1289,33 +1285,12 @@ export default function KafkaPathSimulator() {
           )}
         </section>
 
-        <section className="composer-card" aria-label="Создание события">
-          <div className="field-group"><label htmlFor="event-key">Event key</label>
-            <input id="event-key" value={eventKey} onChange={(e) => setEventKey(e.target.value)} readOnly={scenarioId === "same-key"} />
-          </div>
-          <div className="field-group value-field"><label htmlFor="event-value">Value (JSON)</label>
-            <input id="event-value" value={eventValue} onChange={(e) => setEventValue(e.target.value)} readOnly={scenarioId === "same-key"} />
-          </div>
-          <div className="delivery-target">
-            <span>{faultMode === "none" ? "Маршрут" : "Инъекция сбоя"}</span>
-            <strong>P{previewPartition} → Broker {previewResult.leaderBroker}</strong>
-            {faultMode !== "none" && <small>{faultMode === "ack-lost" ? "ACK LOST" : "REQUEST LOST"}</small>}
-          </div>
-          <button className="send-button" onClick={sendEvent} disabled={!canLaunch}>
-            <Send size={17} />{
-              !canSend && scenarioId === "same-key" && sameKeyCount === 3
-                ? "Сценарий завершён"
-                : !isGuided && !previewResult.configValid && configErrorAccepted
-                  ? "Изучить ConfigException"
-                  : scenario.sendLabel
-            }
-          </button>
-        </section>
+        </>}
 
         <div className="content-grid">
           <section className={`simulator-card ${showClusterFocus ? "focus-mode" : ""}`}>
             <div className="card-heading">
-              <div><span>END-TO-END EVENT CHAIN · 11+ ЭТАПОВ</span><h2>{TOPIC_NAME} → analytics_db</h2></div>
+              <div><span>END-TO-END DATA CHAIN · 11+ ЭТАПОВ</span><h2>{topicName || TOPIC_NAME} → service_db</h2></div>
               <div className="sim-controls">
                 <button className="icon-button" onClick={goPrevious} disabled={!activeEvent || activeEvent.stage === 0} aria-label="Предыдущий шаг" title="Предыдущий шаг · ←"><SkipBack size={18} /></button>
                 <button className="icon-button primary-control" onClick={() => activeEvent && setPlaying((v) => !v)} disabled={!activeEvent} aria-label={playing ? "Пауза" : "Продолжить"} title="Пауза / продолжить · Space">{playing ? <CirclePause size={20} /> : <CirclePlay size={20} />}</button>
@@ -1370,10 +1345,10 @@ export default function KafkaPathSimulator() {
               {activeStep?.id === "retrySend" && (
                 <div className="retry-wave"><RefreshCw size={16} /><span>ATTEMPT 2</span></div>
               )}
-              <div className={`map-node producer-node ${activeEvent?.stage === 0 ? "current" : ""}`}><span className="node-icon violet"><Braces size={21} /></span><div><strong>Order API</strong><small>Producer</small></div></div>
+              <div className={`map-node producer-node ${activeEvent?.stage === 0 ? "current" : ""}`}><span className="node-icon violet">{activeEvent?.kind === "file" ? <FileUp size={21} /> : <Braces size={21} />}</span><div><strong>{activeEvent?.name || eventName || "Input Gateway"}</strong><small>Producer · {activeEvent?.kind === "file" ? "file" : "event"}</small></div></div>
 
               <section className="topic-journal">
-                <header><div><span>LOGICAL VIEW · TOPIC</span><strong>{TOPIC_NAME}</strong></div><b><Layers3 size={13} /> append-only logs</b></header>
+                <header><div><span>LOGICAL VIEW · TOPIC</span><strong>{activeEvent?.topic || topicName || TOPIC_NAME}</strong></div><b><Layers3 size={13} /> append-only logs</b></header>
                 <div className="partition-logs">
                   {eventsByPartition.map((partitionEvents, p) => <div key={p} className={`partition-log ${activeEvent?.partition === p && activeEvent.stage >= 1 ? "selected" : ""}`}>
                     <button className="partition-name" onClick={() => setSelectedPartition(p)} aria-label={`Открыть детали partition P${p}`}>
@@ -1438,19 +1413,19 @@ export default function KafkaPathSimulator() {
               })}
               <div className={`map-node consumer-node ${activeStep?.node === "consumer" ? "current mint-current" : ""}`}>
                 <span className="node-icon mint"><Users size={21} /></span>
-                <div><strong>analytics-cg</strong><small>poll() · Consumer 1</small></div>
+                <div><strong>sandbox-cg</strong><small>poll() · Consumer 1</small></div>
               </div>
               <div className={`map-node decode-node pipeline-node ${activeStep?.node === "deserializer" ? "current mint-current" : ""}`}>
                 <span className="node-icon cyan"><Braces size={21} /></span>
-                <div><strong>JSON Decoder</strong><small>bytes → OrderEvent</small></div>
+                <div><strong>{activeEvent?.kind === "file" ? "File Decoder" : "JSON Decoder"}</strong><small>bytes → application data</small></div>
               </div>
               <div className={`map-node process-node pipeline-node ${activeStep?.node === "processor" ? "current mint-current" : ""}`}>
                 <span className="node-icon violet"><Activity size={21} /></span>
-                <div><strong>Order Handler</strong><small>business processing</small></div>
+                <div><strong>Event Handler</strong><small>business processing</small></div>
               </div>
               <div className={`map-node sink-node pipeline-node ${activeStep?.node === "sink" ? "current mint-current" : ""}`}>
                 <span className="node-icon amber"><Database size={21} /></span>
-                <div><strong>analytics_db</strong><small>external side effect</small></div>
+                <div><strong>service_db</strong><small>external side effect</small></div>
               </div>
               <div className={`map-node offset-node pipeline-node ${activeStep?.node === "offset" ? "current mint-current" : ""}`}>
                 <span className="node-icon mint"><ShieldCheck size={21} /></span>
@@ -1469,7 +1444,7 @@ export default function KafkaPathSimulator() {
                               : activeStep.node === "offset" ? "OFF"
                   : activeDisposition === "failed" ? "!" : activeDisposition === "skipped" ? "—" : "E"
               }</b></div>}
-              {!activeEvent && <div className="empty-map"><span><Send size={20} /></span><strong>Сценарий готов</strong><small>Отправьте event, чтобы запустить state machine</small></div>}
+              {!activeEvent && <div className="empty-map"><span><Send size={20} /></span><strong>Система ждёт данные</strong><small>Отправьте event или файл, чтобы запустить state machine</small></div>}
             </div>
             </div>
 
@@ -1556,7 +1531,10 @@ export default function KafkaPathSimulator() {
                   <div className="section-title"><span><Braces size={18} /> Event Inspector</span>{selectedEvent && <b>{selectedEvent.id === activeEvent?.id ? "CURRENT" : "HISTORY"}</b>}</div>
                   <dl>
                     <div><dt>eventId</dt><dd>{selectedEvent?.id ?? "—"}</dd></div><div><dt>created</dt><dd>{selectedEvent?.createdAt ?? "—"}</dd></div>
-                    <div><dt>topic</dt><dd>{TOPIC_NAME}</dd></div><div><dt>key</dt><dd>{selectedEvent ? selectedEvent.key || "null" : "—"}</dd></div>
+                    <div><dt>type / name</dt><dd>{selectedEvent ? `${selectedEvent.kind} · ${selectedEvent.name}` : "—"}</dd></div>
+                    <div><dt>topic</dt><dd>{selectedEvent?.topic ?? topicName}</dd></div><div><dt>key</dt><dd>{selectedEvent ? selectedEvent.key || "null" : "—"}</dd></div>
+                    <div><dt>headers</dt><dd>{selectedEvent?.headers || "—"}</dd></div>
+                    {selectedEvent?.kind === "file" && <><div><dt>file</dt><dd>{selectedEvent.fileName ?? "—"}</dd></div><div><dt>mime / size</dt><dd>{selectedEvent ? `${selectedEvent.mimeType ?? "binary"} · ${selectedEvent.fileSize ?? 0} B` : "—"}</dd></div></>}
                     <div><dt>partition</dt><dd>{selectedEvent ? `P${selectedEvent.partition}` : "—"}</dd></div><div><dt>offset</dt><dd>{selectedEvent && isLogVisible(selectedEvent) ? selectedEvent.offset : "—"}</dd></div>
                     <div><dt>leader at send</dt><dd>{selectedEvent ? `Broker ${selectedEvent.result.leaderBroker}` : "—"}</dd></div>
                     <div><dt>followers</dt><dd>{selectedEvent ? selectedEvent.result.onlineReplicaBrokers.filter((broker) => broker !== selectedEvent.result.leaderBroker).map((broker) => `B${broker}`).join(", ") || "none" : "—"}</dd></div>
@@ -1708,7 +1686,7 @@ export default function KafkaPathSimulator() {
         <section className="partition-modal" role="dialog" aria-modal="true" aria-labelledby="partition-title" onMouseDown={(event) => event.stopPropagation()}>
           <header className="partition-modal-header">
             <div>
-              <span>PARTITION INSPECTOR · {TOPIC_NAME}</span>
+              <span>PARTITION INSPECTOR · {selectedEvent?.topic || topicName || TOPIC_NAME}</span>
               <h2 id="partition-title">Partition P{selectedPartition}</h2>
               <p>Один упорядоченный append-only журнал и его физические replicas при RF={deliveryConfig.replicationFactor}.</p>
             </div>
@@ -1770,7 +1748,7 @@ export default function KafkaPathSimulator() {
                 </Fragment>;
               })}
               {!partitionDetails?.length && <div className="partition-empty">
-                <Send size={22} /><div><strong>Новых records пока нет</strong><p>Запустите сценарий и вернитесь сюда после шага Append.</p></div>
+                <Send size={22} /><div><strong>Новых records пока нет</strong><p>Отправьте данные и вернитесь сюда после шага Append.</p></div>
               </div>}
             </div>
           </div>
@@ -1780,10 +1758,10 @@ export default function KafkaPathSimulator() {
       </div>}
 
       {showGlossary && <div className="drawer-backdrop" onMouseDown={() => setShowGlossary(false)}><section className="glossary-modal" role="dialog" aria-modal="true" aria-labelledby="glossary-title" onMouseDown={(event) => event.stopPropagation()}>
-        <div className="drawer-header"><div><span>Учебный словарь · 0.4.0.1</span><h2 id="glossary-title">Термины Kafka</h2></div><button className="icon-button" onClick={() => setShowGlossary(false)} aria-label="Закрыть словарь"><X size={24} /></button></div>
+        <div className="drawer-header"><div><span>Словарь песочницы · 0.5.0</span><h2 id="glossary-title">Термины Kafka</h2></div><button className="icon-button" onClick={() => setShowGlossary(false)} aria-label="Закрыть словарь"><X size={24} /></button></div>
         <p className="drawer-intro">Определения привязаны к тому, что можно увидеть и проверить прямо в симуляции.</p>
         <div className="glossary-list">{GLOSSARY.map(([term, definition], index) => <article key={term}><span>{String(index + 1).padStart(2, "0")}</span><div><h3>{term}</h3><p>{definition}</p></div></article>)}</div>
-        <div className="next-version"><Sparkles size={18} /><div><strong>Далее · версия 0.4.1</strong><p>Consumer crash, commit timing, lag и rebalance.</p></div><ArrowRight size={17} /></div>
+        <div className="next-version"><Sparkles size={18} /><div><strong>Далее · развитие Sandbox</strong><p>Consumer crash, commit timing, lag, rebalance и DLQ как ручные переключатели системы.</p></div><ArrowRight size={17} /></div>
       </section></div>}
     </main>
   );

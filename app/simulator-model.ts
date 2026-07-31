@@ -128,6 +128,13 @@ export type Scenario = {
 
 export type EventRecord = {
   id: string;
+  topic: string;
+  name: string;
+  kind: "event" | "file";
+  headers: string;
+  fileName: string | null;
+  mimeType: string | null;
+  fileSize: number | null;
   key: string;
   value: string;
   partition: number;
@@ -223,7 +230,7 @@ export const STEPS: SimulationStep[] = [
     id: "consumerFetch",
     short: "Fetch",
     title: "Consumer получил event",
-    description: "Consumer группы analytics-cg прочитал committed record и может начать бизнес-обработку.",
+    description: "Consumer группы sandbox-cg прочитал committed record и может начать бизнес-обработку.",
     technical: "Получение event ещё не означает успешную обработку или сохранение результата во внешней системе.",
     node: "consumer",
   },
@@ -231,7 +238,7 @@ export const STEPS: SimulationStep[] = [
     id: "deserialization",
     short: "Decode",
     title: "Payload десериализован",
-    description: "Consumer преобразовал bytes из record в объект и проверил, что JSON соответствует ожидаемой структуре.",
+    description: "Consumer преобразовал bytes из record в объект или метаданные файла и проверил ожидаемый формат.",
     technical: "На этом шаге проявляются ошибки формата, несовместимая schema и неожиданные обязательные поля.",
     node: "deserializer",
   },
@@ -239,7 +246,7 @@ export const STEPS: SimulationStep[] = [
     id: "businessProcessing",
     short: "Process",
     title: "Запущена бизнес-обработка",
-    description: "Handler применяет правила приложения к заказу и подготавливает результат для внешней системы.",
+    description: "Handler применяет правила приложения к полученным данным и подготавливает результат для внешней системы.",
     technical: "Kafka считает record прочитанным, но бизнес-операция ещё может завершиться ошибкой или быть выполнена повторно.",
     node: "processor",
   },
@@ -247,7 +254,7 @@ export const STEPS: SimulationStep[] = [
     id: "sinkWrite",
     short: "DB write",
     title: "Результат сохранён во внешней БД",
-    description: "Consumer записал обработанный заказ в analytics_db — появился наблюдаемый side effect.",
+    description: "Consumer записал результат обработки в service_db — появился наблюдаемый side effect.",
     technical: "Для QA важно связать eventId, partition и offset с записью в БД и проверить идемпотентность этой операции.",
     node: "sink",
   },
@@ -481,7 +488,7 @@ export const SAME_KEY_VALUES = [
 ] as const;
 
 export const GLOSSARY = [
-  ["Topic", "Логическое имя потока событий. В симуляторе — orders.events."],
+  ["Topic", "Логическое имя потока событий. В песочнице название topic задаёт пользователь."],
   ["Partition", "Упорядоченный append-only журнал внутри topic со своей нумерацией offset."],
   ["Leader replica", "Копия partition на Broker, которая принимает запись от Producer."],
   ["Follower replica", "Копия той же partition, которая синхронизируется с Leader."],
