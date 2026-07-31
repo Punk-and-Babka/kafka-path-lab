@@ -54,6 +54,24 @@ const faultOptions: {
   { id: "ack-lost", title: "Потерять ACK", description: "Сбой после append" },
 ];
 
+const storageFileCopy = {
+  log: {
+    title: "Segment .log",
+    description: "Хранит сами records: key, headers, payload и timestamp в порядке append.",
+    lookup: "Broker читает bytes по найденной позиции и последовательно сканирует записи до нужного offset.",
+  },
+  index: {
+    title: "Offset .index",
+    description: "Разреженный индекс связывает relative offset с byte position внутри .log.",
+    lookup: "Kafka находит ближайшую индексную точку, переходит в .log и дочитывает записи до нужного offset.",
+  },
+  timeindex: {
+    title: "Time .timeindex",
+    description: "Разреженный индекс связывает timestamp с offset и помогает искать запись по времени.",
+    lookup: "Сначала timestamp переводится в offset, затем .index помогает найти позицию record в .log.",
+  },
+} as const;
+
 function formatTime(date: Date) {
   return date.toLocaleTimeString("ru-RU", {
     hour: "2-digit", minute: "2-digit", second: "2-digit",
@@ -245,6 +263,7 @@ export default function Home() {
   const [showClusterFocus, setShowClusterFocus] = useState(false);
   const [selectedPartition, setSelectedPartition] = useState<number | null>(null);
   const [selectedBroker, setSelectedBroker] = useState<number | null>(null);
+  const [selectedStorageFile, setSelectedStorageFile] = useState<keyof typeof storageFileCopy>("log");
   const [focusedPartition, setFocusedPartition] = useState(scenario.focusPartition ?? 0);
   const [onlineBrokers, setOnlineBrokers] = useState<number[]>(
     () => clusterRuntimeForScenario(scenario).onlineBrokers,
@@ -353,12 +372,36 @@ export default function Home() {
   const partitionDetails = selectedPartition === null
     ? null
     : eventsByPartition[selectedPartition];
+  const selectedPartitionRecords = selectedPartition === null
+    ? []
+    : (partitionDetails ?? []).flatMap((event) => {
+        const original = {
+          key: `${event.id}:original`,
+          event,
+          offset: event.offset,
+          duplicate: false,
+        };
+        return event.result.duplicateWritten && isRetryResolved(event) && event.retryOffset !== null
+          ? [original, {
+              key: `${event.id}:duplicate`,
+              event,
+              offset: event.retryOffset,
+              duplicate: true,
+            }]
+          : [original];
+      });
   const selectedPartitionReplicas = selectedPartition === null
     ? []
     : partitionStates[selectedPartition].assignedReplicas;
   const selectedPartitionState = selectedPartition === null
     ? null
     : partitionStates[selectedPartition];
+  const selectedSegmentBase = selectedPartition === null
+    ? "00000000000000000000"
+    : String(BASE_OFFSETS[selectedPartition]).padStart(20, "0");
+  const storagePositionForRecord = (recordIndex: number) =>
+    selectedPartitionRecords.slice(0, recordIndex).reduce((position, record) =>
+      position + Math.max(64, record.event.value.length + record.event.headers.length + 48), 0);
 
   const brokerReplicas = useMemo(() =>
     Array.from({ length: BROKER_COUNT }, (_, index) => {
@@ -849,7 +892,7 @@ export default function Home() {
       <header className="topbar">
         <a className="brand" href="#" aria-label="Kafka Path — главная">
           <span className="brand-mark"><Network size={19} /></span>
-          <span>Kafka Path</span><span className="version">version 0.5.2</span>
+          <span>Kafka Path</span><span className="version">version 0.5.3</span>
         </a>
         <div className="header-actions">
           <button className="header-link" onClick={() => setShowGlossary(true)}>
@@ -1441,6 +1484,14 @@ export default function Home() {
             <div className="card-heading">
               <div><span>END-TO-END DATA CHAIN · 11+ ЭТАПОВ</span><h2>{topicName || TOPIC_NAME} → service_db</h2></div>
               <div className="sim-controls">
+                <button className="map-send-button" onClick={sendEvent} disabled={!canLaunch}>
+                  <Send size={16} />
+                  <span>{!canSend && isGuided && scenarioId === "same-key" && sameKeyCount === SAME_KEY_VALUES.length
+                    ? "Сценарий завершён"
+                    : !canSend ? "Event в пути"
+                      : isGuided ? scenario.sendLabel
+                        : messageKind === "file" ? "Отправить файл" : "Отправить event"}</span>
+                </button>
                 <button className="icon-button" onClick={goPrevious} disabled={!activeEvent || activeEvent.stage === 0} aria-label="Предыдущий шаг" title="Предыдущий шаг · ←"><SkipBack size={18} /></button>
                 <button className="icon-button primary-control" onClick={() => activeEvent && setPlaying((v) => !v)} disabled={!activeEvent} aria-label={playing ? "Пауза" : "Продолжить"} title="Пауза / продолжить · Space">{playing ? <CirclePause size={20} /> : <CirclePlay size={20} />}</button>
                 <button className="icon-button" onClick={goNext} disabled={!activeEvent || activeEvent.stage === activeEvent.stepOrder.length - 1} aria-label="Следующий шаг" title="Следующий шаг · →"><SkipForward size={19} /></button>
@@ -1497,7 +1548,7 @@ export default function Home() {
               <div className={`map-node producer-node ${activeEvent?.stage === 0 ? "current" : ""}`}><span className="node-icon violet">{activeEvent?.kind === "file" ? <FileUp size={21} /> : <Braces size={21} />}</span><div><strong>{activeEvent?.name || eventName || "Input Gateway"}</strong><small>Producer · {activeEvent?.kind === "file" ? "file" : "event"}</small></div></div>
 
               <section className="topic-journal">
-                <header><div><span>LOGICAL VIEW · TOPIC</span><strong>{activeEvent?.topic || topicName || TOPIC_NAME}</strong></div><b><Layers3 size={13} /> append-only logs</b></header>
+                <header><div><span>LOGICAL VIEW · TOPIC</span><strong>{activeEvent?.topic || topicName || TOPIC_NAME}</strong></div><b><Layers3 size={13} /> FIFO / partition · append-only</b></header>
                 <div className="partition-logs">
                   {eventsByPartition.map((partitionEvents, p) => <div key={p} className={`partition-log ${activeEvent?.partition === p && activeEvent.stage >= 1 ? "selected" : ""}`}>
                     <button className="partition-name" onClick={() => setSelectedPartition(p)} aria-label={`Открыть детали partition P${p}`}>
@@ -1860,6 +1911,54 @@ export default function Home() {
             </div>
           </div>
 
+          <section className="replica-sync-panel" aria-label={`Состояние реплик partition P${selectedPartition}`}>
+            <header>
+              <div><strong>Leader → Followers</strong><span>Один журнал P{selectedPartition}, несколько физических копий</span></div>
+              <b>ISR = [{selectedPartitionState?.isrBrokers.map((broker) => `B${broker}`).join(", ") || "empty"}]</b>
+            </header>
+            <div className="replica-sync-list">
+              {selectedPartitionReplicas.map((broker) => {
+                const replicaOnline = onlineBrokers.includes(broker);
+                const replicaLagging = selectedPartitionState?.laggingReplicaBrokers.includes(broker) ?? false;
+                const replicaInIsr = selectedPartitionState?.isrBrokers.includes(broker) ?? false;
+                const replicaIsLeader = selectedPartitionState?.leaderOnline
+                  && selectedPartitionState.leaderBroker === broker;
+                const storedCount = replicaLagging
+                  ? Math.max(0, selectedPartitionRecords.length - 1)
+                  : selectedPartitionRecords.length;
+                const logEndOffset = storedCount
+                  ? selectedPartitionRecords[storedCount - 1].offset
+                  : BASE_OFFSETS[selectedPartition];
+                const replicaState = !replicaOnline
+                  ? "OFFLINE"
+                  : replicaLagging ? "CATCHING UP"
+                    : replicaInIsr ? "IN ISR" : "ONLINE";
+                return <article key={broker} className={`replica-sync-row ${!replicaOnline ? "offline" : replicaLagging ? "lagging" : "isr"}`}>
+                  <div className="replica-identity">
+                    <span className="mini-rack"><i /><i /><i /></span>
+                    <span><strong>Broker {broker}</strong><small>{replicaIsLeader ? "LEADER" : "FOLLOWER"}</small></span>
+                  </div>
+                  <div className="replica-offset-track" aria-label={`Records на Broker ${broker}`}>
+                    <span className="replica-base">… {BASE_OFFSETS[selectedPartition]}</span>
+                    {selectedPartitionRecords.map((record, index) => (
+                      <i
+                        key={record.key}
+                        className={`${index < storedCount ? "stored" : "missing"} ${record.duplicate ? "duplicate" : ""}`}
+                        title={`offset ${record.offset}${index < storedCount ? " сохранён" : " ещё не скопирован"}`}
+                      >{record.offset}</i>
+                    ))}
+                    {!selectedPartitionRecords.length && <em>новых records нет</em>}
+                  </div>
+                  <div className="replica-state">
+                    <small>LEO {logEndOffset}</small>
+                    <b>{replicaState}</b>
+                  </div>
+                </article>;
+              })}
+            </div>
+            <footer><Info size={15} /><span>Только синхронная replica из ISR является надёжным кандидатом на роль нового Leader. Leader тоже входит в ISR.</span></footer>
+          </section>
+
           <div className="partition-records">
             <div className="records-heading"><div><strong>Records</strong><span>Offset уникален только внутри P{selectedPartition}</span></div><b>RF = {deliveryConfig.replicationFactor}</b></div>
             <div className="records-table" role="table" aria-label={`Records partition P${selectedPartition}`}>
@@ -1902,12 +2001,69 @@ export default function Home() {
             </div>
           </div>
 
+          <section className="storage-explorer" aria-label={`Файлы хранения partition P${selectedPartition}`}>
+            <header>
+              <div><span>BROKER FILE SYSTEM · ACTIVE SEGMENT</span><strong>Как P{selectedPartition} хранится на диске</strong></div>
+              <b>./logs/{selectedEvent?.topic || topicName || TOPIC_NAME}-{selectedPartition}</b>
+            </header>
+            <div className="storage-browser">
+              <nav className="storage-file-list" aria-label="Файлы активного сегмента">
+                {(["log", "index", "timeindex"] as const).map((fileType) => (
+                  <button
+                    key={fileType}
+                    className={selectedStorageFile === fileType ? "active" : ""}
+                    onClick={() => setSelectedStorageFile(fileType)}
+                  >
+                    <Database size={17} />
+                    <span><strong>{selectedSegmentBase}.{fileType}</strong><small>{fileType === "log" ? "records" : fileType === "index" ? "offset → position" : "timestamp → offset"}</small></span>
+                    <ChevronRight size={15} />
+                  </button>
+                ))}
+              </nav>
+              <div className="storage-file-detail">
+                <div className="storage-file-heading">
+                  <span><strong>{storageFileCopy[selectedStorageFile].title}</strong><small>{storageFileCopy[selectedStorageFile].description}</small></span>
+                  <b>{selectedPartitionRecords.length} new records</b>
+                </div>
+                <div className="storage-lookup-path">
+                  <span>{selectedStorageFile === "timeindex" ? "timestamp" : "offset"}</span>
+                  <ArrowRight size={14} />
+                  <span>{selectedStorageFile === "log" ? ".log scan" : `.${selectedStorageFile}`}</span>
+                  <ArrowRight size={14} />
+                  <span>{selectedStorageFile === "timeindex" ? "offset → .index → .log" : selectedStorageFile === "index" ? "position → .log" : "record bytes"}</span>
+                </div>
+                <div className={`storage-table ${selectedStorageFile}`} role="table">
+                  <div className="storage-table-row head" role="row">
+                    {selectedStorageFile === "log" ? <><span>OFFSET</span><span>POSITION</span><span>TIMESTAMP</span><span>RECORD</span></>
+                      : selectedStorageFile === "index" ? <><span>RELATIVE</span><span>OFFSET</span><span>POSITION</span><span>NEAREST RECORD</span></>
+                        : <><span>TIMESTAMP</span><span>OFFSET</span><span>POSITION</span><span>RESULT</span></>}
+                  </div>
+                  {selectedPartitionRecords.map((record, index) => {
+                    const position = storagePositionForRecord(index);
+                    const relativeOffset = record.offset - BASE_OFFSETS[selectedPartition];
+                    return <div className="storage-table-row" role="row" key={`${selectedStorageFile}:${record.key}`}>
+                      {selectedStorageFile === "log" ? <>
+                        <strong>{record.offset}</strong><span>{position} B</span><span>{record.event.createdAt}</span><span>{record.duplicate ? "DUPLICATE" : record.event.name}</span>
+                      </> : selectedStorageFile === "index" ? <>
+                        <strong>+{relativeOffset}</strong><span>{record.offset}</span><span>{position} B</span><span>{record.duplicate ? `${record.event.id} · DUP` : record.event.id}</span>
+                      </> : <>
+                        <strong>{record.event.createdAt}</strong><span>{record.offset}</span><span>{position} B</span><span>{record.event.name}</span>
+                      </>}
+                    </div>;
+                  })}
+                  {!selectedPartitionRecords.length && <div className="storage-table-empty"><Send size={18} /><span>После append здесь появится связь record, offset, position и timestamp.</span></div>}
+                </div>
+                <p className="storage-explanation"><Info size={15} /><span>{storageFileCopy[selectedStorageFile].lookup} Position показана в упрощённой учебной модели сегмента.</span></p>
+              </div>
+            </div>
+          </section>
+
           <footer className="partition-hint"><Info size={18} /><p><strong>Важно:</strong> P{selectedPartition} в Topic и P{selectedPartition} L/F на Brokers — не разные очереди, а логический журнал и его физические копии.</p></footer>
         </section>
       </div>}
 
       {showGlossary && <div className="drawer-backdrop" onMouseDown={() => setShowGlossary(false)}><section className="glossary-modal" role="dialog" aria-modal="true" aria-labelledby="glossary-title" onMouseDown={(event) => event.stopPropagation()}>
-        <div className="drawer-header"><div><span>Словарь Kafka Path · 0.5.2</span><h2 id="glossary-title">Термины Kafka</h2></div><button className="icon-button" onClick={() => setShowGlossary(false)} aria-label="Закрыть словарь"><X size={24} /></button></div>
+        <div className="drawer-header"><div><span>Словарь Kafka Path · 0.5.3</span><h2 id="glossary-title">Термины Kafka</h2></div><button className="icon-button" onClick={() => setShowGlossary(false)} aria-label="Закрыть словарь"><X size={24} /></button></div>
         <p className="drawer-intro">Определения привязаны к тому, что можно увидеть и проверить прямо в симуляции.</p>
         <div className="glossary-list">{GLOSSARY.map(([term, definition], index) => <article key={term}><span>{String(index + 1).padStart(2, "0")}</span><div><h3>{term}</h3><p>{definition}</p></div></article>)}</div>
         <div className="next-version"><Sparkles size={18} /><div><strong>Далее · развитие лаборатории</strong><p>Consumer crash, commit timing, lag, rebalance и DLQ как сценарии и ручные переключатели системы.</p></div><ArrowRight size={17} /></div>

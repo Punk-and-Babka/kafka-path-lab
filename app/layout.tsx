@@ -13,9 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Kafka Path 0.5.2 — сценарии и лаборатории песочницы",
+  title: "Kafka Path 0.5.3 — визуальная Kafka-лаборатория",
   description:
-    "Интерактивная Kafka-лаборатория: 10 учебных сценариев, свободная песочница, настройки Producer, сетевые сбои, Broker, ISR, Consumer, БД и commit offset.",
+    "Интерактивная Kafka-лаборатория: сценарии, песочница, FIFO partition logs, Leader/Follower replicas, ISR, хранение сегментов, Consumer, БД и commit offset.",
   other: {
     "codex-preview": "development",
   },
