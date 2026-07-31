@@ -241,7 +241,7 @@ export default function Home() {
   const [speed, setSpeed] = useState(1);
   const [showGlossary, setShowGlossary] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [showAdvancedConfig, setShowAdvancedConfig] = useState(false);
+  const [showAdvancedConfig, setShowAdvancedConfig] = useState(true);
   const [showClusterFocus, setShowClusterFocus] = useState(false);
   const [selectedPartition, setSelectedPartition] = useState<number | null>(null);
   const [selectedBroker, setSelectedBroker] = useState<number | null>(null);
@@ -521,7 +521,7 @@ export default function Home() {
     setFaultMode(scenario.faultMode);
     setConfigErrorAccepted(false);
     setEvents([]); setActiveEventId(null); setSelectedEventId(null);
-    setPlaying(false); setShowSettings(false); setShowAdvancedConfig(mode === "guided");
+    setPlaying(false); setShowSettings(false); setShowAdvancedConfig(true);
     setInspectorTab("delivery");
     applyScenarioCluster(scenario);
     keylessCounter.current = 0;
@@ -645,6 +645,16 @@ export default function Home() {
         ? "ack-lost-duplicate"
         : "ack-lost-idempotent",
     );
+  };
+
+  const openSandboxLab = (sectionId: string) => {
+    setShowAdvancedConfig(true);
+    window.setTimeout(() => {
+      document.getElementById(sectionId)?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 0);
   };
 
   const copyPayload = async () => {
@@ -839,7 +849,7 @@ export default function Home() {
       <header className="topbar">
         <a className="brand" href="#" aria-label="Kafka Path — главная">
           <span className="brand-mark"><Network size={19} /></span>
-          <span>Kafka Path</span><span className="version">version 0.5.1</span>
+          <span>Kafka Path</span><span className="version">version 0.5.2</span>
         </a>
         <div className="header-actions">
           <button className="header-link" onClick={() => setShowGlossary(true)}>
@@ -892,7 +902,7 @@ export default function Home() {
             <strong>{isGuided ? "Preset сценария применён автоматически" : "Вы управляете входными данными и конфигурацией"}</strong>
             <span>{isGuided
               ? "Настройки защищены от случайных изменений; при желании перенесите preset в песочницу."
-              : "Свободный режим использует ту же визуальную цепочку, инспектор, Kafka cluster и Consumer."}</span>
+              : "Ниже сразу доступны Producer Settings, Network & Retry Lab и Cluster Resilience Lab."}</span>
           </div>
         </section>
 
@@ -986,17 +996,36 @@ export default function Home() {
         </section>
         </>}
 
-        <button className={`advanced-toggle ${showAdvancedConfig ? "active" : ""}`} onClick={() => setShowAdvancedConfig((value) => !value)}>
-          <Settings2 size={17} /><span><strong>{isGuided ? "Параметры сценария и лаборатории" : "Настройки системы и ручные сбои"}</strong><small>acks, retries, idempotence, Broker, ISR и сетевые ошибки</small></span><ChevronRight size={17} />
+        {!isGuided && (
+          <nav className="sandbox-lab-index" aria-label="Лаборатории песочницы">
+            <div><span>SANDBOX LABS</span><strong>Настройки и отказы рабочей системы</strong></div>
+            <button onClick={() => openSandboxLab("delivery-lab")}>
+              <Settings2 size={16} /><span><strong>Producer Settings</strong><small>acks · RF · min ISR · retries</small></span>
+            </button>
+            <button onClick={() => openSandboxLab("retry-lab")}>
+              <Radio size={16} /><span><strong>Network & Retry</strong><small>request lost · ACK lost · duplicate</small></span>
+            </button>
+            <button onClick={() => openSandboxLab("resilience-lab")}>
+              <Network size={16} /><span><strong>Cluster Resilience</strong><small>Broker · Leader · ISR · failover</small></span>
+            </button>
+          </nav>
+        )}
+
+        <button
+          className={`advanced-toggle ${showAdvancedConfig ? "active" : ""}`}
+          aria-expanded={showAdvancedConfig}
+          onClick={() => setShowAdvancedConfig((value) => !value)}
+        >
+          <Settings2 size={17} /><span><strong>{isGuided ? "Параметры сценария и лаборатории" : showAdvancedConfig ? "Лаборатории песочницы открыты" : "Показать лаборатории песочницы"}</strong><small>acks, retries, idempotence, Broker, ISR и сетевые ошибки</small></span><ChevronRight size={17} />
         </button>
 
         {showAdvancedConfig && <>
 
-        <section className="delivery-lab" aria-label="Настройки доставки Producer">
+        <section id="delivery-lab" className="delivery-lab" aria-label="Настройки доставки Producer">
           <header className="delivery-lab-heading">
             <div>
               <span>{isGuided ? <ShieldCheck size={16} /> : <Settings2 size={16} />}
-                {isGuided ? "SCENARIO PRESET" : "DELIVERY SETTINGS"}</span>
+                {isGuided ? "SCENARIO PRESET" : "SANDBOX PRODUCER SETTINGS"}</span>
               <h2>{isGuided ? "Настройки применены автоматически" : "Измените конфигурацию рабочей системы"}</h2>
             </div>
             <div className={`config-health ${isGuided || previewResult.configValid ? "valid" : "invalid"}`}>
@@ -1147,7 +1176,7 @@ export default function Home() {
           </div>
         </section>
 
-        <section className="retry-lab" aria-label="Сетевые сбои, retries и idempotence">
+        <section id="retry-lab" className="retry-lab" aria-label="Сетевые сбои, retries и idempotence">
           <header className="retry-lab-heading">
             <div>
               <span><Radio size={16} /> NETWORK & RETRY LAB · 0.3.3</span>
@@ -1261,7 +1290,7 @@ export default function Home() {
           </footer>
         </section>
 
-        <section className="resilience-lab" aria-label="Управление отказоустойчивостью кластера">
+        <section id="resilience-lab" className="resilience-lab" aria-label="Управление отказоустойчивостью кластера">
           <header className="resilience-heading">
             <div>
               <span><Network size={16} /> CLUSTER RESILIENCE LAB · 0.3.2</span>
@@ -1878,7 +1907,7 @@ export default function Home() {
       </div>}
 
       {showGlossary && <div className="drawer-backdrop" onMouseDown={() => setShowGlossary(false)}><section className="glossary-modal" role="dialog" aria-modal="true" aria-labelledby="glossary-title" onMouseDown={(event) => event.stopPropagation()}>
-        <div className="drawer-header"><div><span>Словарь Kafka Path · 0.5.1</span><h2 id="glossary-title">Термины Kafka</h2></div><button className="icon-button" onClick={() => setShowGlossary(false)} aria-label="Закрыть словарь"><X size={24} /></button></div>
+        <div className="drawer-header"><div><span>Словарь Kafka Path · 0.5.2</span><h2 id="glossary-title">Термины Kafka</h2></div><button className="icon-button" onClick={() => setShowGlossary(false)} aria-label="Закрыть словарь"><X size={24} /></button></div>
         <p className="drawer-intro">Определения привязаны к тому, что можно увидеть и проверить прямо в симуляции.</p>
         <div className="glossary-list">{GLOSSARY.map(([term, definition], index) => <article key={term}><span>{String(index + 1).padStart(2, "0")}</span><div><h3>{term}</h3><p>{definition}</p></div></article>)}</div>
         <div className="next-version"><Sparkles size={18} /><div><strong>Далее · развитие лаборатории</strong><p>Consumer crash, commit timing, lag, rebalance и DLQ как сценарии и ручные переключатели системы.</p></div><ArrowRight size={17} /></div>

@@ -1,8 +1,8 @@
-# Kafka Path 0.5.1 — Scenarios + Sandbox
+# Kafka Path 0.5.2 — Scenarios + Sandbox Labs
 
 Интерактивная лаборатория Kafka на React, TypeScript и Vinext.
 
-Версия 0.5.1 объединяет два режима в одной визуальной системе:
+Версия 0.5.2 объединяет два режима в одной визуальной системе:
 
 - **Свободная песочница** — собственный event или локальный файл, topic, key,
   headers, payload и ручные настройки Kafka;
@@ -32,6 +32,16 @@ Producer → Topic / Partition → Leader / Followers → ACK
 
 Preset сценария можно перенести в песочницу кнопкой
 **«Изменить в песочнице»** и продолжить эксперимент вручную.
+
+В песочнице три лаборатории открываются сразу и работают независимо от
+сценариев:
+
+- **Sandbox Producer Settings** — `acks`, `replication.factor`,
+  `min.insync.replicas`, brokers, retries и idempotence;
+- **Network & Retry Lab** — нормальная сеть, потеря request или ACK, повторная
+  отправка, duplicate и deduplication;
+- **Cluster Resilience Lab** — управление Broker, Leader, ISR, lagging replica
+  и failover.
 
 Файл не загружается на сервер. Текстовые данные до 256 KB читаются локально,
 а для крупных или бинарных файлов симулятор формирует metadata record.
@@ -85,7 +95,7 @@ Workflow уже находится в `.github/workflows/deploy-pages.yml`.
 
 ```bash
 git add -A
-git commit -m "Release 0.5.1 scenarios and sandbox"
+git commit -m "Release 0.5.2 sandbox labs"
 git push origin main
 ```
 

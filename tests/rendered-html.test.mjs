@@ -45,8 +45,12 @@ test("renders the sandbox and guided-scenario entry points", async () => {
   const html = await response.text();
 
   assert.equal(response.status, 200);
-  assert.match(html, /version 0\.5\.1/);
+  assert.match(html, /version 0\.5\.2/);
   assert.match(html, /Свободная песочница/);
   assert.match(html, /Учебные сценарии/);
   assert.match(html, /10 готовых ситуаций из версии 0\.4\.0\.1/);
+  assert.match(html, /SANDBOX LABS/);
+  assert.match(html, /Producer Settings/);
+  assert.match(html, /Network (?:&|&amp;) Retry/);
+  assert.match(html, /Cluster Resilience/);
 });

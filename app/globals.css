@@ -217,6 +217,89 @@ button {
   align-items: center;
 }
 
+.sandbox-lab-index {
+  margin-bottom: 10px;
+  padding: 10px;
+  display: grid;
+  grid-template-columns: minmax(205px, .85fr) repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  align-items: stretch;
+  background: linear-gradient(105deg, #f6f5ff, #ffffff 56%, #f0faf7);
+  border: 1px solid #dedbea;
+  border-radius: 13px;
+}
+
+.sandbox-lab-index > div,
+.sandbox-lab-index button,
+.sandbox-lab-index button > span {
+  display: flex;
+}
+
+.sandbox-lab-index > div {
+  padding: 4px 7px;
+  align-items: flex-start;
+  justify-content: center;
+  flex-direction: column;
+}
+
+.sandbox-lab-index > div span {
+  color: #7563dc;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 9px;
+  font-weight: 760;
+  letter-spacing: .1em;
+}
+
+.sandbox-lab-index > div strong {
+  margin-top: 4px;
+  color: #41465a;
+  font-size: 10px;
+}
+
+.sandbox-lab-index button {
+  min-width: 0;
+  padding: 9px 10px;
+  align-items: center;
+  gap: 9px;
+  color: #555b70;
+  background: rgba(255, 255, 255, .86);
+  border: 1px solid #e1e2ea;
+  border-radius: 9px;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.sandbox-lab-index button:hover {
+  border-color: #a99feb;
+  box-shadow: 0 5px 15px rgba(55, 46, 119, .08);
+  transform: translateY(-1px);
+}
+
+.sandbox-lab-index button > svg {
+  flex: 0 0 auto;
+  color: #7563dc;
+}
+
+.sandbox-lab-index button > span {
+  min-width: 0;
+  align-items: flex-start;
+  flex-direction: column;
+}
+
+.sandbox-lab-index button strong {
+  font-size: 10px;
+}
+
+.sandbox-lab-index button small {
+  margin-top: 2px;
+  overflow: hidden;
+  color: #8a90a1;
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .system-live {
   gap: 10px;
 }
@@ -2992,6 +3075,12 @@ button.record-row:hover,
   box-shadow: 0 7px 24px rgba(25, 30, 55, .045);
 }
 
+.delivery-lab,
+.retry-lab,
+.resilience-lab {
+  scroll-margin-top: 78px;
+}
+
 .delivery-lab-heading {
   margin-bottom: 14px;
   display: flex;
@@ -5449,6 +5538,14 @@ button.record-row:hover,
 }
 
 @media (max-width: 1050px) {
+  .sandbox-lab-index {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .sandbox-lab-index > div {
+    grid-column: 1 / -1;
+  }
+
   .scenario-switcher {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -5468,6 +5565,14 @@ button.record-row:hover,
 }
 
 @media (max-width: 700px) {
+  .sandbox-lab-index {
+    grid-template-columns: 1fr;
+  }
+
+  .sandbox-lab-index > div {
+    grid-column: auto;
+  }
+
   .scenario-switcher,
   .fault-selector,
   .attempt-summary {
