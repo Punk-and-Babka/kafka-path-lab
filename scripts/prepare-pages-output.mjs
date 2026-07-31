@@ -23,9 +23,15 @@ for (const file of await htmlFiles(outputDirectory)) {
   const fontDirectory = `${basePath}/assets/_vinext_fonts/`;
   const prepared = html
     .replace(/href="[^"]*?\/\.vinext\/fonts\//g, `href="${fontDirectory}`)
-    .replace(/url\((?:"|')?[^)"']*?\/\.vinext\/fonts\//g, `url(${fontDirectory}`);
+    .replace(/url\((?:"|')?[^)"']*?\/\.vinext\/fonts\//g, `url(${fontDirectory}`)
+    .replace(/(?<![A-Za-z0-9_/-])\/assets\/_vinext_fonts\//g, fontDirectory)
+    .replace(/(["'(=])\/(favicon|file|globe|window)\.svg/g, `$1${basePath}/$2.svg`);
 
   if (prepared.includes("/.vinext/fonts/")) throw new Error(`Unresolved vinext font path in ${file}`);
+  if (/["'(]\/assets\/_vinext_fonts\//.test(prepared)) {
+    throw new Error(`Unresolved root font path in ${file}`);
+  }
+  if (/href="\/favicon\.svg"/.test(prepared)) throw new Error(`Unresolved favicon path in ${file}`);
   await writeFile(file, prepared);
 }
 

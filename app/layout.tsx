@@ -13,9 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Kafka Path 0.4.0.1 — интерактивный симулятор",
+  title: "Kafka Path 0.5.1 — сценарии и песочница",
   description:
-    "Учебный симулятор полного пути Kafka event: Producer, partitions, replicas, Consumer, обработка, БД и commit offset.",
+    "Интерактивная Kafka-лаборатория: 10 учебных сценариев, свободная песочница, Producer, partitions, replicas, Consumer, БД и commit offset.",
   other: {
     "codex-preview": "development",
   },

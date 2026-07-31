@@ -140,7 +140,7 @@ export type EventRecord = {
   partition: number;
   offset: number;
   stage: number;
-  scenarioId: ScenarioId;
+  scenarioId: ScenarioId | "sandbox";
   sequence: number;
   createdAt: string;
   delivery: DeliveryConfig;

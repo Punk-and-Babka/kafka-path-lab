@@ -3,7 +3,7 @@
 import {
   Activity, AlertTriangle, ArrowRight, BookOpen, Boxes, Braces, Check,
   ChevronRight, CirclePause, CirclePlay, CircleX, Database, Gauge,
-  FileJson2, FileUp, Info, Layers3, Maximize2, Minimize2, Network,
+  FileJson2, FileUp, GitBranch, Info, Layers3, Maximize2, Minimize2, Network,
   Power, Radio, RefreshCw, RotateCcw, Send, Server, Settings2, ShieldCheck,
   SkipBack, SkipForward, Sparkles, TimerReset, Users, WifiOff, X, Zap,
 } from "lucide-react";
@@ -223,6 +223,7 @@ function copyForStep(event: EventRecord | null, step: SimulationStep | null) {
 export default function Home() {
   const [scenarioId, setScenarioId] = useState<ScenarioId>("happy-path");
   const scenario = SCENARIOS.find((item) => item.id === scenarioId) ?? SCENARIOS[0];
+  const [learningMode, setLearningMode] = useState<"guided" | "sandbox">("sandbox");
   const [eventKey, setEventKey] = useState(scenario.defaultKey);
   const [eventValue, setEventValue] = useState(scenario.defaultValue);
   const [messageKind, setMessageKind] = useState<"event" | "file">("event");
@@ -275,10 +276,11 @@ export default function Home() {
   const activeStepCopy = copyForStep(activeEvent, activeStep);
   const selectedLifecycle = lifecycleForEvent(selectedEvent);
   const selectedStepOrder = selectedEvent?.stepOrder ?? stepOrderForConfig(deliveryConfig, faultMode);
+  const isGuided = learningMode === "guided";
   const sameKeyCount = events.filter((event) => event.scenarioId === "same-key").length;
   const canSend = (!activeEvent || activeEvent.stage === activeEvent.stepOrder.length - 1)
-    && !(scenarioId === "same-key" && sameKeyCount >= SAME_KEY_VALUES.length);
-  const nextKey = scenarioId === "same-key" ? scenario.defaultKey : eventKey;
+    && !(isGuided && scenarioId === "same-key" && sameKeyCount >= SAME_KEY_VALUES.length);
+  const nextKey = isGuided && scenarioId === "same-key" ? scenario.defaultKey : eventKey;
   const previewPartition = resolvePartition(nextKey, events.length);
   const clusterRuntime = useMemo(() => ({
     onlineBrokers,
@@ -331,7 +333,6 @@ export default function Home() {
   const activeDisposition = activeEvent && activeStep
     ? stepDisposition(activeEvent, activeStep.id)
     : null;
-  const isGuided = false;
   const retryResult = selectedEvent?.result ?? previewResult;
   const retryFault = selectedEvent?.faultMode ?? faultMode;
   const retryStageReached = Boolean(selectedEvent && isRetryResolved(selectedEvent));
@@ -492,20 +493,46 @@ export default function Home() {
   const chooseScenario = (id: ScenarioId) => {
     const next = SCENARIOS.find((item) => item.id === id) ?? SCENARIOS[0];
     setScenarioId(id); setEventKey(next.defaultKey); setEventValue(next.defaultValue);
+    setMessageKind("event"); setFileMeta(null);
+    setTopicName(TOPIC_NAME);
+    setEventName(id === "same-key" ? "OrderStatusChanged" : "OrderEvent");
+    setEventHeaders("content-type=application/json, source=guided-scenario");
     setDeliveryConfig({ ...next.config });
     setFaultMode(next.faultMode);
     setConfigErrorAccepted(false);
     setEvents([]); setActiveEventId(null); setSelectedEventId(null);
-    setPlaying(false); setShowSettings(false); setInspectorTab("delivery");
+    setPlaying(false); setShowSettings(false); setShowAdvancedConfig(true);
+    setInspectorTab("delivery");
     applyScenarioCluster(next);
+    keylessCounter.current = 0;
+  };
+
+  const chooseLearningMode = (mode: "guided" | "sandbox") => {
+    if (mode === learningMode) return;
+    setLearningMode(mode);
+    setMessageKind("event"); setFileMeta(null);
+    setTopicName(TOPIC_NAME);
+    setEventName(mode === "guided" ? "OrderEvent" : eventName || "OrderEvent");
+    setEventHeaders(mode === "guided"
+      ? "content-type=application/json, source=guided-scenario"
+      : "content-type=application/json, source=manual-lab");
+    setEventKey(scenario.defaultKey); setEventValue(scenario.defaultValue);
+    setDeliveryConfig({ ...scenario.config });
+    setFaultMode(scenario.faultMode);
+    setConfigErrorAccepted(false);
+    setEvents([]); setActiveEventId(null); setSelectedEventId(null);
+    setPlaying(false); setShowSettings(false); setShowAdvancedConfig(mode === "guided");
+    setInspectorTab("delivery");
+    applyScenarioCluster(scenario);
     keylessCounter.current = 0;
   };
 
   const sendEvent = () => {
     if (!canSend) return;
-    const sequence = scenarioId === "same-key" ? sameKeyCount : events.length;
-    const key = scenarioId === "same-key" ? scenario.defaultKey : eventKey;
-    const value = scenarioId === "same-key"
+    const guidedSameKey = isGuided && scenarioId === "same-key";
+    const sequence = guidedSameKey ? sameKeyCount : events.length;
+    const key = guidedSameKey ? scenario.defaultKey : eventKey;
+    const value = guidedSameKey
       ? SAME_KEY_VALUES[Math.min(sequence, SAME_KEY_VALUES.length - 1)] : eventValue;
     const partition = resolvePartition(key, keylessCounter.current);
     if (!key.trim()) keylessCounter.current += 1;
@@ -522,7 +549,9 @@ export default function Home() {
       fileName: fileMeta?.name ?? null,
       mimeType: fileMeta?.type || null,
       fileSize: fileMeta?.size ?? null,
-      key, value, partition, offset, stage: 0, scenarioId, sequence,
+      key, value, partition, offset, stage: 0,
+      scenarioId: isGuided ? scenarioId : "sandbox",
+      sequence,
       createdAt: formatTime(new Date()), delivery, result,
       stepOrder: stepOrderForConfig(delivery, faultMode),
       faultMode,
@@ -535,7 +564,7 @@ export default function Home() {
     setActiveEventId(id); setSelectedEventId(id); setPlaying(true);
     setInspectorTab("delivery");
     setCopied(false);
-    if (scenarioId === "same-key" && sequence + 1 < SAME_KEY_VALUES.length) {
+    if (guidedSameKey && sequence + 1 < SAME_KEY_VALUES.length) {
       setEventValue(SAME_KEY_VALUES[sequence + 1]);
     }
   };
@@ -810,14 +839,15 @@ export default function Home() {
       <header className="topbar">
         <a className="brand" href="#" aria-label="Kafka Path — главная">
           <span className="brand-mark"><Network size={19} /></span>
-          <span>Kafka Path</span><span className="version">version 0.5.0</span>
+          <span>Kafka Path</span><span className="version">version 0.5.1</span>
         </a>
         <div className="header-actions">
           <button className="header-link" onClick={() => setShowGlossary(true)}>
             <BookOpen size={16} /> Словарь
           </button>
-          <span className="mode-pill sandbox">
-            <Settings2 size={14} /> Sandbox
+          <span className={`mode-pill ${isGuided ? "" : "sandbox"}`}>
+            {isGuided ? <Sparkles size={14} /> : <Settings2 size={14} />}
+            {isGuided ? "Учебный сценарий" : "Песочница"}
           </span>
         </div>
       </header>
@@ -825,9 +855,11 @@ export default function Home() {
       <section className="workspace">
         <div className="intro-row">
           <div>
-            <p className="eyebrow"><Activity size={14} /> Free Kafka sandbox</p>
-            <h1>Отправьте свои данные в рабочую систему</h1>
-            <p>Без готовых сценариев: создайте event или выберите файл, настройте Producer и наблюдайте, как данные проходят routing, append, replication, ACK, Consumer, обработчик, БД и commit offset.</p>
+            <p className="eyebrow"><Activity size={14} /> Kafka learning laboratory</p>
+            <h1>Сценарии и свободная песочница в одной системе</h1>
+            <p>{isGuided
+              ? "Выберите готовую учебную ситуацию и пошагово проверьте, как Kafka ведёт себя при разных ACK, отказах Broker, retries и idempotence."
+              : "Создайте собственный event или выберите файл, настройте Producer и наблюдайте фактическое прохождение данных до БД и commit offset."}</p>
           </div>
           <div className="cluster-summary">
             <span><Server size={15} /> {onlineBrokers.length}/3 online</span>
@@ -837,6 +869,82 @@ export default function Home() {
           </div>
         </div>
 
+        <section className="learning-mode-switch" aria-label="Режим работы симулятора">
+          <button
+            className={!isGuided ? "active sandbox" : "sandbox"}
+            aria-pressed={!isGuided}
+            onClick={() => chooseLearningMode("sandbox")}
+          >
+            <span><Settings2 size={19} /></span>
+            <div><strong>Свободная песочница</strong><small>Свой event или файл и ручная настройка системы</small></div>
+            {!isGuided && <Check size={18} />}
+          </button>
+          <button
+            className={isGuided ? "active" : ""}
+            aria-pressed={isGuided}
+            onClick={() => chooseLearningMode("guided")}
+          >
+            <span><Sparkles size={19} /></span>
+            <div><strong>Учебные сценарии</strong><small>10 готовых ситуаций из версии 0.4.0.1</small></div>
+            {isGuided && <Check size={18} />}
+          </button>
+          <div className={`mode-explanation ${isGuided ? "guided" : "sandbox"}`}>
+            <strong>{isGuided ? "Preset сценария применён автоматически" : "Вы управляете входными данными и конфигурацией"}</strong>
+            <span>{isGuided
+              ? "Настройки защищены от случайных изменений; при желании перенесите preset в песочницу."
+              : "Свободный режим использует ту же визуальную цепочку, инспектор, Kafka cluster и Consumer."}</span>
+          </div>
+        </section>
+
+        {isGuided ? <>
+          <div className="scenario-labels">
+            <span>Основы</span><span>ACK и доставка</span><span>Отказоустойчивость</span><span>Retries</span>
+          </div>
+          <nav className="scenario-switcher" aria-label="Учебные сценарии">
+            {SCENARIOS.map((item, index) => (
+              <button
+                key={item.id}
+                className={`${scenarioId === item.id ? "active" : ""} ${item.group}`}
+                onClick={() => chooseScenario(item.id)}
+              >
+                <span>{String(index + 1).padStart(2, "0")}</span>
+                <div><strong>{item.title}</strong><small>{item.description}</small></div>
+                {scenarioId === item.id && <Check size={16} />}
+              </button>
+            ))}
+          </nav>
+
+          <section className="scenario-brief">
+            <div className="brief-icon"><GitBranch size={18} /></div>
+            <div><span>{scenario.badge}</span><strong>{scenario.lesson}</strong></div>
+            {scenarioId === "same-key" && <div className="scenario-progress">
+              {SAME_KEY_VALUES.map((_, index) => <i key={index} className={index < sameKeyCount ? "complete" : ""}>
+                {index < sameKeyCount ? <Check size={10} /> : index + 1}
+              </i>)}
+            </div>}
+          </section>
+
+          <section className="composer-card guided-composer" aria-label="Запуск учебного события">
+            <div className="field-group"><label htmlFor="guided-event-key">Event key</label>
+              <input id="guided-event-key" value={eventKey} onChange={(event) => setEventKey(event.target.value)} readOnly={scenarioId === "same-key"} />
+            </div>
+            <div className="field-group value-field"><label htmlFor="guided-event-value">Value (JSON)</label>
+              <input id="guided-event-value" value={eventValue} onChange={(event) => setEventValue(event.target.value)} readOnly={scenarioId === "same-key"} />
+            </div>
+            <div className="delivery-target">
+              <span>{faultMode === "none" ? "Маршрут" : "Инъекция сбоя"}</span>
+              <strong>P{previewPartition} → Broker {previewResult.leaderBroker}</strong>
+              {faultMode !== "none" && <small>{faultMode === "ack-lost" ? "ACK LOST" : "REQUEST LOST"}</small>}
+            </div>
+            <button className="send-button" onClick={sendEvent} disabled={!canLaunch}>
+              <Send size={17} />{
+                !canSend && scenarioId === "same-key" && sameKeyCount === SAME_KEY_VALUES.length
+                  ? "Сценарий завершён"
+                  : scenario.sendLabel
+              }
+            </button>
+          </section>
+        </> : <>
         <section className="sandbox-system" aria-label="Состояние рабочей системы">
           <div className="system-live"><i /><span><strong>Система работает</strong><small>Producer, Kafka cluster, Consumer и service_db доступны</small></span></div>
           <div className="system-path"><span>INPUT</span><ArrowRight size={14} /><b>{topicName || TOPIC_NAME}</b><ArrowRight size={14} /><span>PROCESSING</span><ArrowRight size={14} /><span>RESULT</span></div>
@@ -876,9 +984,10 @@ export default function Home() {
           </div>
           {!inputReady && <p className="composer-warning"><Info size={14} /> Укажите topic, имя события и payload либо выберите файл.</p>}
         </section>
+        </>}
 
         <button className={`advanced-toggle ${showAdvancedConfig ? "active" : ""}`} onClick={() => setShowAdvancedConfig((value) => !value)}>
-          <Settings2 size={17} /><span><strong>Настройки системы и ручные сбои</strong><small>acks, retries, idempotence, Broker, ISR и сетевые ошибки</small></span><ChevronRight size={17} />
+          <Settings2 size={17} /><span><strong>{isGuided ? "Параметры сценария и лаборатории" : "Настройки системы и ручные сбои"}</strong><small>acks, retries, idempotence, Broker, ISR и сетевые ошибки</small></span><ChevronRight size={17} />
         </button>
 
         {showAdvancedConfig && <>
@@ -886,12 +995,13 @@ export default function Home() {
         <section className="delivery-lab" aria-label="Настройки доставки Producer">
           <header className="delivery-lab-heading">
             <div>
-              <span><Settings2 size={16} /> DELIVERY SETTINGS</span>
-              <h2>Измените конфигурацию рабочей системы</h2>
+              <span>{isGuided ? <ShieldCheck size={16} /> : <Settings2 size={16} />}
+                {isGuided ? "SCENARIO PRESET" : "DELIVERY SETTINGS"}</span>
+              <h2>{isGuided ? "Настройки применены автоматически" : "Измените конфигурацию рабочей системы"}</h2>
             </div>
             <div className={`config-health ${isGuided || previewResult.configValid ? "valid" : "invalid"}`}>
               {isGuided || previewResult.configValid ? <Check size={16} /> : <CircleX size={16} />}
-              {previewResult.configValid ? "Конфигурация совместима" : "ConfigException"}
+              {isGuided ? "Preset сценария активен" : previewResult.configValid ? "Конфигурация совместима" : "ConfigException"}
             </div>
           </header>
 
@@ -966,10 +1076,18 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="sandbox-config-actions">
-            <div><Settings2 size={17} /><span>Ручной режим: изменения относятся только к текущему эксперименту.</span></div>
-            <button onClick={restoreScenarioConfig}><RotateCcw size={15} /> Вернуть рабочие настройки</button>
-          </div>
+          {isGuided ? (
+            <div className="guided-config-note">
+              <ShieldCheck size={18} />
+              <div><strong>Параметры соответствуют сценарию «{scenario.title}»</strong><span>Они доступны для просмотра, но не изменяются в учебном режиме.</span></div>
+              <button onClick={() => chooseLearningMode("sandbox")}>Изменить в песочнице</button>
+            </div>
+          ) : (
+            <div className="sandbox-config-actions">
+              <div><Settings2 size={17} /><span>Ручной режим: изменения относятся только к текущему эксперименту.</span></div>
+              <button onClick={restoreScenarioConfig}><RotateCcw size={15} /> Вернуть рабочие настройки</button>
+            </div>
+          )}
 
           {!isGuided && !previewResult.configValid && (
             <div className={`config-errors ${configErrorAccepted ? "accepted" : ""}`}>
@@ -1034,10 +1152,12 @@ export default function Home() {
             <div>
               <span><Radio size={16} /> NETWORK & RETRY LAB · 0.3.3</span>
               <h2>Выберите, где оборвётся первая попытка</h2>
-              <p>Сетевой сбой можно включить вручную и сравнить фактическую запись в Kafka с тем, что увидел Producer.</p>
+              <p>{isGuided
+                ? "Сценарий задаёт подходящий сетевой preset. Сравните число Produce requests с реальными records в Kafka."
+                : "Сетевой сбой можно включить вручную и сравнить фактическую запись в Kafka с тем, что увидел Producer."}</p>
             </div>
             <div className="retry-heading-actions">
-              {(scenarioId === "ack-lost-duplicate" || scenarioId === "ack-lost-idempotent") && (
+              {isGuided && (scenarioId === "ack-lost-duplicate" || scenarioId === "ack-lost-idempotent") && (
                 <button className="compare-button" onClick={compareRetryMode}>
                   <RefreshCw size={15} />
                   {scenarioId === "ack-lost-idempotent"
@@ -1758,10 +1878,10 @@ export default function Home() {
       </div>}
 
       {showGlossary && <div className="drawer-backdrop" onMouseDown={() => setShowGlossary(false)}><section className="glossary-modal" role="dialog" aria-modal="true" aria-labelledby="glossary-title" onMouseDown={(event) => event.stopPropagation()}>
-        <div className="drawer-header"><div><span>Словарь песочницы · 0.5.0</span><h2 id="glossary-title">Термины Kafka</h2></div><button className="icon-button" onClick={() => setShowGlossary(false)} aria-label="Закрыть словарь"><X size={24} /></button></div>
+        <div className="drawer-header"><div><span>Словарь Kafka Path · 0.5.1</span><h2 id="glossary-title">Термины Kafka</h2></div><button className="icon-button" onClick={() => setShowGlossary(false)} aria-label="Закрыть словарь"><X size={24} /></button></div>
         <p className="drawer-intro">Определения привязаны к тому, что можно увидеть и проверить прямо в симуляции.</p>
         <div className="glossary-list">{GLOSSARY.map(([term, definition], index) => <article key={term}><span>{String(index + 1).padStart(2, "0")}</span><div><h3>{term}</h3><p>{definition}</p></div></article>)}</div>
-        <div className="next-version"><Sparkles size={18} /><div><strong>Далее · развитие Sandbox</strong><p>Consumer crash, commit timing, lag, rebalance и DLQ как ручные переключатели системы.</p></div><ArrowRight size={17} /></div>
+        <div className="next-version"><Sparkles size={18} /><div><strong>Далее · развитие лаборатории</strong><p>Consumer crash, commit timing, lag, rebalance и DLQ как сценарии и ручные переключатели системы.</p></div><ArrowRight size={17} /></div>
       </section></div>}
     </main>
   );

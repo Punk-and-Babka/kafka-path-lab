@@ -1,9 +1,15 @@
-# Kafka Path 0.5.0 — Sandbox
+# Kafka Path 0.5.1 — Scenarios + Sandbox
 
-Интерактивная песочница Kafka на React, TypeScript и Vinext.
+Интерактивная лаборатория Kafka на React, TypeScript и Vinext.
 
-В версии 0.5.0 нет готовых учебных сценариев. Пользователь задаёт входные
-данные и наблюдает их фактическое прохождение по рабочей системе:
+Версия 0.5.1 объединяет два режима в одной визуальной системе:
+
+- **Свободная песочница** — собственный event или локальный файл, topic, key,
+  headers, payload и ручные настройки Kafka;
+- **Учебные сценарии** — 10 готовых ситуаций из версии 0.4.0.1 с presets,
+  объяснениями и ожидаемым результатом.
+
+Оба режима используют одну end-to-end цепочку:
 
 ```text
 Producer → Topic / Partition → Leader / Followers → ACK
@@ -16,6 +22,16 @@ Producer → Topic / Partition → Leader / Followers → ACK
 - локальный текстовый, JSON, XML или бинарный файл;
 - сообщение без key для демонстрации round-robin;
 - несколько сообщений подряд для сравнения partitions и offsets.
+
+## Учебные сценарии
+
+- обычная доставка и последовательность событий с одинаковым key;
+- сравнение `acks=0`, `acks=1` и `acks=all`;
+- падение Leader, недостаточный ISR и возврат replica;
+- потеря ACK с duplicate и с idempotent deduplication.
+
+Preset сценария можно перенести в песочницу кнопкой
+**«Изменить в песочнице»** и продолжить эксперимент вручную.
 
 Файл не загружается на сервер. Текстовые данные до 256 KB читаются локально,
 а для крупных или бинарных файлов симулятор формирует metadata record.
@@ -69,7 +85,7 @@ Workflow уже находится в `.github/workflows/deploy-pages.yml`.
 
 ```bash
 git add -A
-git commit -m "Release 0.5.0 sandbox"
+git commit -m "Release 0.5.1 scenarios and sandbox"
 git push origin main
 ```
 
