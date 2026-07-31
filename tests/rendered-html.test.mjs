@@ -72,6 +72,22 @@ test("includes topology construction, validation, event routing, and txt persist
   assert.match(source, /Загрузить \.txt/);
 });
 
+test("keeps constructor and simulator event markers isolated", async () => {
+  const [constructorSource, simulatorSource, styles] = await Promise.all([
+    readFile(new URL("../app/topology-constructor.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/kafka-path-simulator.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(constructorSource, /className="constructor-event-orb"/);
+  assert.doesNotMatch(constructorSource, /className="event-orb"/);
+  assert.match(simulatorSource, /className={`event-orb stage-/);
+  assert.match(styles, /\.constructor-event-orb\s*{[^}]*right:\s*-11px;/s);
+  const simulatorOrbRules = styles.match(/\.event-orb\s*{[^}]*}/gs) ?? [];
+  assert.ok(simulatorOrbRules.length > 0);
+  assert.ok(simulatorOrbRules.every((rule) => !/\bright\s*:/.test(rule)));
+});
+
 test("includes the nearby send action and partition storage learning views", async () => {
   const source = await readFile(
     new URL("../app/kafka-path-simulator.tsx", import.meta.url),

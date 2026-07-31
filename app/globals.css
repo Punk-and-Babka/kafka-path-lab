@@ -2381,7 +2381,7 @@ button {
 .node-replicas span.follower { color: #59708f; background: #edf3f8; border-color: #d4e0eb; }
 .node-replicas span.out { opacity: .48; text-decoration: line-through; }
 
-.event-orb {
+.constructor-event-orb {
   width: 25px;
   height: 25px;
   position: absolute;
@@ -2926,7 +2926,7 @@ button {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .event-orb {
+  .constructor-event-orb {
     animation: none;
   }
 }

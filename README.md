@@ -1,8 +1,8 @@
-# Kafka Path 0.6.0 — Scenarios + Sandbox + Topology Constructor
+# Kafka Path 0.6.0.1 — Scenarios + Sandbox + Topology Constructor
 
 Интерактивная лаборатория Kafka на React, TypeScript и Vinext.
 
-Версия 0.6.0 объединяет три режима в одной визуальной системе:
+Версия 0.6.0.1 объединяет три режима в одной визуальной системе и исправляет растягивание маркера event в сценариях и песочнице:
 
 - **Свободная песочница** — собственный event или локальный файл, topic, key,
   headers, payload и ручные настройки Kafka;
@@ -114,7 +114,7 @@ Workflow уже находится в `.github/workflows/deploy-pages.yml`.
 
 ```bash
 git add -A
-git commit -m "Release 0.6.0 topology constructor"
+git commit -m "Release 0.6.0.1 event orb hotfix"
 git push origin main
 ```
 

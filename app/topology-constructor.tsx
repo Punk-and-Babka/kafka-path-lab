@@ -599,7 +599,7 @@ export default function TopologyConstructor({
       <header className="topbar">
         <a className="brand" href="#" aria-label="Kafka Path — главная">
           <span className="brand-mark"><Network size={19} /></span>
-          <span>Kafka Path</span><span className="version">version 0.6.0</span>
+          <span>Kafka Path</span><span className="version">version 0.6.0.1</span>
         </a>
         <div className="header-actions">
           <span className="mode-pill constructor"><Workflow size={14} /> Конструктор</span>
@@ -718,7 +718,7 @@ export default function TopologyConstructor({
                     <div className="node-main"><span className="node-icon">{kindIcon(node.kind, 20)}</span><div><strong>{node.label}</strong><small>{node.kind === "topic" ? `${node.config.partitions ?? 1} partitions · min ISR ${node.config.minIsr ?? 1}` : node.kind === "broker" ? `${nodeReplicas.length} replicas · ${node.config.online === false ? "OFFLINE" : "ONLINE"}` : node.kind === "producer" ? `acks=${node.config.acks} · retries=${node.config.retries}` : node.kind === "consumer" ? node.config.groupId : node.config.tableName}</small></div></div>
                     {node.kind === "topic" && <div className="topic-partitions">{Array.from({ length: clamp(node.config.partitions ?? 1, 1, 12) }, (_, partition) => <span key={partition}>P{partition}</span>)}</div>}
                     {node.kind === "broker" && <div className="node-replicas">{nodeReplicas.slice(0, 4).map((replica, index) => <span key={`${replica.topicId}-${replica.partition}-${index}`} className={`${replica.role} ${replica.inIsr ? "isr" : "out"}`}>P{replica.partition} {replica.role === "leader" ? "L" : "F"}</span>)}{nodeReplicas.length > 4 && <span>+{nodeReplicas.length - 4}</span>}</div>}
-                    {active && <span className="event-orb"><Zap size={11} /></span>}
+                    {active && <span className="constructor-event-orb"><Zap size={11} /></span>}
                   </article>;
                 })}
               </div>
