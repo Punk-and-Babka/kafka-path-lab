@@ -9,6 +9,8 @@
     "install:ci": "bash scripts/install-ci.sh",
     "dev": "vite",
     "build": "bash scripts/build-verified.sh",
+    "build:pages": "vinext build",
+    "postbuild:pages": "node scripts/prepare-pages-output.mjs",
     "start": "vinext start",
     "test": "npm run build && node --test tests/rendered-html.test.mjs",
     "validate:artifact": "bash scripts/validate-artifact.sh",

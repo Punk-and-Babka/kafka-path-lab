@@ -24,6 +24,25 @@ records и offsets, возникновение duplicate без idempotence и �
 
 Инструкция запуска: [`LOCAL_RUN_RU.md`](./LOCAL_RUN_RU.md).
 
+## Публикация через GitHub Pages
+
+Проект содержит workflow `.github/workflows/deploy-pages.yml`. После каждого
+push в ветку `main` он автоматически:
+
+1. устанавливает зависимости через `npm ci`;
+2. выполняет статический экспорт `npm run build:pages`;
+3. публикует содержимое `dist/client` через GitHub Pages.
+
+Для первой публикации откройте на GitHub `Settings → Pages` и выберите
+`Source: GitHub Actions`. Состояние публикации отображается во вкладке
+`Actions`.
+
+Имя репозитория подставляется автоматически. Сайт будет доступен по адресу:
+
+```text
+https://<github-login>.github.io/<repository-name>/
+```
+
 ## Основа проекта
 
 A clean full-stack starter running on

@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
+const pagesBasePath = process.env.GITHUB_PAGES_BASE_PATH ?? "";
+
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
@@ -20,8 +22,8 @@ export const metadata: Metadata = {
     "codex-preview": "development",
   },
   icons: {
-    icon: "/favicon.svg",
-    shortcut: "/favicon.svg",
+    icon: `${pagesBasePath}/favicon.svg`,
+    shortcut: `${pagesBasePath}/favicon.svg`,
   },
 };
 
