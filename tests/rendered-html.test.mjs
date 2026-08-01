@@ -46,7 +46,7 @@ test("renders the sandbox, guided-scenario, and constructor entry points", async
   const html = await response.text();
 
   assert.equal(response.status, 200);
-  assert.match(html, /version 0\.6\.2/);
+  assert.match(html, /version 0\.6\.3/);
   assert.match(html, /Свободная песочница/);
   assert.match(html, /Учебные сценарии/);
   assert.match(html, /Конструктор/);
@@ -120,4 +120,25 @@ test("includes the expanded searchable QA-oriented glossary", async () => {
   assert.match(glossarySource, /Kafka гарантирует порядок records только в пределах одной partition/);
   assert.match(glossarySource, /At-least-once/);
   assert.match(glossarySource, /Log compaction/);
+});
+
+test("includes manual contextual help without engagement tracking", async () => {
+  const [simulatorSource, constructorSource, helpSource, styles] = await Promise.all([
+    readFile(new URL("../app/kafka-path-simulator.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/topology-constructor.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/help-system.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(simulatorSource, /className="help-cta"/);
+  assert.match(simulatorSource, /<HelpSystem/);
+  assert.match(constructorSource, /onOpenHelp/);
+  assert.match(helpSource, /Показать, где можно нажать/);
+  assert.match(helpSource, /Объяснить текущий режим/);
+  assert.match(helpSource, /help-discovery-mode/);
+  assert.match(helpSource, /data-tour/);
+  assert.match(helpSource, /QA-фокус/);
+  assert.doesNotMatch(helpSource, /localStorage|sessionStorage|help-progress|tour-progress/);
+  assert.match(styles, /\.help-tour-spotlight/);
+  assert.match(styles, /body\.help-discovery-mode/);
 });

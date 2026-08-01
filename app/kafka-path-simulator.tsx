@@ -2,7 +2,7 @@
 
 import {
   Activity, AlertTriangle, ArrowRight, BookOpen, Boxes, Braces, Check,
-  ChevronRight, CirclePause, CirclePlay, CircleX, Database, Gauge,
+  ChevronRight, CircleHelp, CirclePause, CirclePlay, CircleX, Database, Gauge,
   FileJson2, FileUp, GitBranch, Info, Layers3, Maximize2, Minimize2, Network,
   Power, Radio, RefreshCw, RotateCcw, Search, Send, Server, Settings2, ShieldCheck,
   SkipBack, SkipForward, Sparkles, TimerReset, Users, WifiOff, Workflow, X, Zap,
@@ -19,6 +19,7 @@ import {
   stepDisposition, stepOrderForConfig, TOPIC_NAME,
 } from "./simulator-model";
 import { GLOSSARY, GLOSSARY_CATEGORIES, GlossaryCategory } from "./glossary-data";
+import HelpSystem from "./help-system";
 import TopologyConstructor from "./topology-constructor";
 
 type LearningMode = "guided" | "sandbox" | "constructor";
@@ -98,7 +99,7 @@ function GlossaryDialog({
   onClose: () => void;
 }) {
   return <div className="drawer-backdrop" onMouseDown={onClose}><section className="glossary-modal" role="dialog" aria-modal="true" aria-labelledby="glossary-title" onMouseDown={(event) => event.stopPropagation()}>
-    <div className="drawer-header"><div><span>Словарь Kafka Path · 0.6.2</span><h2 id="glossary-title">Термины Kafka</h2></div><button className="icon-button" onClick={onClose} aria-label="Закрыть словарь"><X size={24} /></button></div>
+    <div className="drawer-header"><div><span>Словарь Kafka Path · 0.6.3</span><h2 id="glossary-title">Термины Kafka</h2></div><button className="icon-button" onClick={onClose} aria-label="Закрыть словарь"><X size={24} /></button></div>
     <p className="drawer-intro">Короткая суть видна сразу. Откройте карточку, чтобы разобрать механику, пример в лаборатории и то, что важно проверить тестировщику.</p>
 
     <div className="glossary-toolbar">
@@ -316,6 +317,7 @@ export default function Home() {
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
   const [showGlossary, setShowGlossary] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
   const [glossaryQuery, setGlossaryQuery] = useState("");
   const [glossaryCategory, setGlossaryCategory] = useState<GlossaryCategory | "Все">("Все");
   const [showSettings, setShowSettings] = useState(false);
@@ -988,8 +990,13 @@ export default function Home() {
 
   if (learningMode === "constructor") {
     return <>
-      <TopologyConstructor onModeChange={chooseLearningMode} onOpenGlossary={() => setShowGlossary(true)} />
+      <TopologyConstructor
+        onModeChange={chooseLearningMode}
+        onOpenGlossary={() => { setShowHelp(false); setShowGlossary(true); }}
+        onOpenHelp={() => { setShowGlossary(false); setShowHelp(true); }}
+      />
       {glossaryDialog}
+      {showHelp && <HelpSystem key="constructor-help" open mode="constructor" onClose={() => setShowHelp(false)} />}
     </>;
   }
 
@@ -998,14 +1005,18 @@ export default function Home() {
       <header className="topbar">
         <a className="brand" href="#" aria-label="Kafka Path — главная">
           <span className="brand-mark"><Network size={19} /></span>
-          <span>Kafka Path</span><span className="version">version 0.6.2</span>
+          <span>Kafka Path</span><span className="version">version 0.6.3</span>
         </a>
         <div className="header-actions">
           <span className={`mode-pill ${isGuided ? "" : "sandbox"}`}>
             {isGuided ? <Sparkles size={14} /> : <Settings2 size={14} />}
             {isGuided ? "Учебный сценарий" : "Песочница"}
           </span>
-          <button className="glossary-cta" onClick={() => setShowGlossary(true)} aria-haspopup="dialog" aria-expanded={showGlossary}>
+          <button className="help-cta" onClick={() => { setShowGlossary(false); setShowHelp(true); }} aria-label="Открыть подсказку по интерфейсу" aria-haspopup="dialog" aria-expanded={showHelp}>
+            <span className="help-cta-icon"><CircleHelp size={19} /></span>
+            <span><strong>Подсказка</strong><small>Что здесь нажимать</small></span>
+          </button>
+          <button className="glossary-cta" data-tour="glossary-button" data-help="Словарь: определения Kafka, примеры и QA-проверки" onClick={() => { setShowHelp(false); setShowGlossary(true); }} aria-haspopup="dialog" aria-expanded={showGlossary}>
             <span className="glossary-cta-icon"><BookOpen size={19} /></span>
             <span className="glossary-cta-copy"><strong>Словарь Kafka</strong><small>{GLOSSARY.length} термин с примерами</small></span>
             <span className="glossary-cta-badge" aria-hidden="true">{GLOSSARY.length}</span>
@@ -1030,7 +1041,7 @@ export default function Home() {
           </div>
         </div>
 
-        <section className="learning-mode-switch three-modes" aria-label="Режим работы симулятора">
+        <section className="learning-mode-switch three-modes" data-tour="learning-modes" data-help="Переключатель режимов: песочница, сценарии и конструктор" aria-label="Режим работы симулятора">
           <button
             className={!isGuided ? "active sandbox" : "sandbox"}
             aria-pressed={!isGuided}
@@ -1069,7 +1080,7 @@ export default function Home() {
           <div className="scenario-labels">
             <span>Основы</span><span>ACK и доставка</span><span>Отказоустойчивость</span><span>Retries</span>
           </div>
-          <nav className="scenario-switcher" aria-label="Учебные сценарии">
+          <nav className="scenario-switcher" data-tour="scenario-picker" data-help="Выбор готового учебного сценария Kafka" aria-label="Учебные сценарии">
             {SCENARIOS.map((item, index) => (
               <button
                 key={item.id}
@@ -1093,7 +1104,7 @@ export default function Home() {
             </div>}
           </section>
 
-          <section className="composer-card guided-composer" aria-label="Запуск учебного события">
+          <section className="composer-card guided-composer" data-tour="guided-input" data-help="Данные preset и кнопка запуска учебного event" aria-label="Запуск учебного события">
             <div className="field-group"><label htmlFor="guided-event-key">Event key</label>
               <input id="guided-event-key" value={eventKey} onChange={(event) => setEventKey(event.target.value)} readOnly={scenarioId === "same-key"} />
             </div>
@@ -1120,7 +1131,7 @@ export default function Home() {
           <p>Это не сценарий с заранее известным ответом. Вы задаёте входные данные и сами проверяете факты на каждом этапе.</p>
         </section>
 
-        <section className="sandbox-composer" aria-label="Создание входных данных">
+        <section className="sandbox-composer" data-tour="sandbox-input" data-help="Создание event или локального файла и запуск в систему" aria-label="Создание входных данных">
           <header>
             <div><span>NEW INPUT</span><h2>Что отправляем в систему?</h2></div>
             <div className="message-kind" role="group" aria-label="Тип сообщения">
@@ -1156,7 +1167,7 @@ export default function Home() {
         </>}
 
         {!isGuided && (
-          <nav className="sandbox-lab-index" aria-label="Лаборатории песочницы">
+          <nav className="sandbox-lab-index" data-tour="sandbox-labs" data-help="Быстрая навигация к настройкам, retry и отказоустойчивости" aria-label="Лаборатории песочницы">
             <div><span>SANDBOX LABS</span><strong>Настройки и отказы рабочей системы</strong></div>
             <button onClick={() => openSandboxLab("delivery-lab")}>
               <Settings2 size={16} /><span><strong>Producer Settings</strong><small>acks · RF · min ISR · retries</small></span>
@@ -1180,7 +1191,7 @@ export default function Home() {
 
         {showAdvancedConfig && <>
 
-        <section id="delivery-lab" className="delivery-lab" aria-label="Настройки доставки Producer">
+        <section id="delivery-lab" className="delivery-lab" data-tour="producer-settings" data-help="Настройки Producer и условий подтверждения записи" aria-label="Настройки доставки Producer">
           <header className="delivery-lab-heading">
             <div>
               <span>{isGuided ? <ShieldCheck size={16} /> : <Settings2 size={16} />}
@@ -1333,7 +1344,7 @@ export default function Home() {
           </div>
         </section>
 
-        <section id="retry-lab" className="retry-lab" aria-label="Сетевые сбои, retries и idempotence">
+        <section id="retry-lab" className="retry-lab" data-tour="network-retry" data-help="Потеря request/ACK, retries, duplicate и idempotence" aria-label="Сетевые сбои, retries и idempotence">
           <header className="retry-lab-heading">
             <div>
               <span><Radio size={16} /> NETWORK & RETRY LAB · 0.3.3</span>
@@ -1447,7 +1458,7 @@ export default function Home() {
           </footer>
         </section>
 
-        <section id="resilience-lab" className="resilience-lab" aria-label="Управление отказоустойчивостью кластера">
+        <section id="resilience-lab" className="resilience-lab" data-tour="cluster-resilience" data-help="Управление Broker, Leader, Followers и ISR" aria-label="Управление отказоустойчивостью кластера">
           <header className="resilience-heading">
             <div>
               <span><Network size={16} /> CLUSTER RESILIENCE LAB · 0.3.2</span>
@@ -1594,7 +1605,7 @@ export default function Home() {
         </>}
 
         <div className="content-grid">
-          <section className={`simulator-card ${showClusterFocus ? "focus-mode" : ""}`}>
+          <section className={`simulator-card ${showClusterFocus ? "focus-mode" : ""}`} data-tour="simulation-map" data-help="Интерактивная карта маршрута event и управление симуляцией">
             <div className="card-heading">
               <div><span>END-TO-END DATA CHAIN · 11+ ЭТАПОВ</span><h2>{topicName || TOPIC_NAME} → service_db</h2></div>
               <div className="sim-controls">
@@ -1790,7 +1801,7 @@ export default function Home() {
             </div>
           </section>
 
-          <aside className="inspector">
+          <aside className="inspector" data-tour="event-inspector" data-help="Инспектор event: текущий шаг, доставка и lifecycle">
             <section className="inspector-card explanation-card">
               <div className="step-counter"><span>ШАГ {activeEvent ? activeEvent.stage + 1 : "—"} ИЗ {activeEvent?.stepOrder.length ?? timelineSteps.length}</span>{playing && <i><span /> в процессе</i>}</div>
               <div className="explanation-icon">{
@@ -2177,6 +2188,7 @@ export default function Home() {
       </div>}
 
       {glossaryDialog}
+      {showHelp && <HelpSystem key={`${isGuided ? "guided" : "sandbox"}-help`} open mode={isGuided ? "guided" : "sandbox"} onClose={() => setShowHelp(false)} />}
     </main>
   );
 }

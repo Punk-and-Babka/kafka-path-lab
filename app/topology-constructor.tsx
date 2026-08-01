@@ -2,7 +2,7 @@
 
 import {
   AlertTriangle, ArrowLeft, ArrowRight, BookOpen, Boxes, Check, ChevronRight,
-  CirclePause, CirclePlay, CircleX, Database, Download, Grip,
+  CircleHelp, CirclePause, CirclePlay, CircleX, Database, Download, Grip,
   Info, Link2, MousePointer2, Network, Play, Plus, Radio,
   RotateCcw, Send, Server, Settings2, ShieldCheck, Sparkles,
   Trash2, Unlink, Upload, Users, Workflow, X, Zap,
@@ -249,9 +249,11 @@ function isSavedTopology(value: unknown): value is SavedTopology {
 export default function TopologyConstructor({
   onModeChange,
   onOpenGlossary,
+  onOpenHelp,
 }: {
   onModeChange: (mode: LearningMode) => void;
   onOpenGlossary: () => void;
+  onOpenHelp: () => void;
 }) {
   const [nodes, setNodes] = useState<TopologyNode[]>(presetNodes);
   const [edges, setEdges] = useState<TopologyEdge[]>(presetEdges);
@@ -601,11 +603,15 @@ export default function TopologyConstructor({
       <header className="topbar">
         <a className="brand" href="#" aria-label="Kafka Path — главная">
           <span className="brand-mark"><Network size={19} /></span>
-          <span>Kafka Path</span><span className="version">version 0.6.2</span>
+          <span>Kafka Path</span><span className="version">version 0.6.3</span>
         </a>
         <div className="header-actions">
           <span className="mode-pill constructor"><Workflow size={14} /> Конструктор</span>
-          <button className="glossary-cta" onClick={onOpenGlossary} aria-haspopup="dialog">
+          <button className="help-cta" onClick={onOpenHelp} aria-label="Открыть подсказку по интерфейсу" aria-haspopup="dialog">
+            <span className="help-cta-icon"><CircleHelp size={19} /></span>
+            <span><strong>Подсказка</strong><small>Что здесь нажимать</small></span>
+          </button>
+          <button className="glossary-cta" data-tour="glossary-button" data-help="Словарь: определения Kafka, примеры и QA-проверки" onClick={onOpenGlossary} aria-haspopup="dialog">
             <span className="glossary-cta-icon"><BookOpen size={19} /></span>
             <span className="glossary-cta-copy"><strong>Словарь Kafka</strong><small>41 термин с примерами</small></span>
             <span className="glossary-cta-badge" aria-hidden="true">41</span>
@@ -628,7 +634,7 @@ export default function TopologyConstructor({
           </div>
         </div>
 
-        <section className="learning-mode-switch three-modes" aria-label="Режим работы симулятора">
+        <section className="learning-mode-switch three-modes" data-tour="learning-modes" data-help="Переключатель режимов: песочница, сценарии и конструктор" aria-label="Режим работы симулятора">
           <button className="sandbox" onClick={() => onModeChange("sandbox")}>
             <span><Settings2 size={19} /></span><div><strong>Свободная песочница</strong><small>Готовый стенд и ручные эксперименты</small></div>
           </button>
@@ -640,7 +646,7 @@ export default function TopologyConstructor({
           </button>
         </section>
 
-        <section className="constructor-toolbar" aria-label="Инструменты топологии">
+        <section className="constructor-toolbar" data-tour="constructor-toolbar" data-help="Готовый preset, пустой холст, сохранение, загрузка и проверка схемы" aria-label="Инструменты топологии">
           <div className="constructor-presets">
             <button className="primary" onClick={loadPreset}><Play size={15} /> Готовый стенд</button>
             <button onClick={clearCanvas}><RotateCcw size={15} /> Пустой холст</button>
@@ -671,7 +677,7 @@ export default function TopologyConstructor({
         </section>}
 
         <div className="constructor-layout">
-          <aside className="node-palette">
+          <aside className="node-palette" data-tour="node-palette" data-help="Палитра узлов: элементы можно перетащить или добавить кнопкой +">
             <header><span>ЭЛЕМЕНТЫ</span><strong>Перетащите на холст</strong></header>
             <div className="palette-list">
               {(Object.keys(nodeMeta) as NodeKind[]).map((kind) => <div key={kind} className={`palette-item ${kind}`} draggable onDragStart={(event) => handlePaletteDrag(event, kind)}>
@@ -682,7 +688,7 @@ export default function TopologyConstructor({
             <div className="palette-hint"><MousePointer2 size={16} /><p><strong>Как собирать</strong><span>Добавьте узлы, соедините их в инспекторе справа, затем назначьте replicas внутри Broker.</span></p></div>
           </aside>
 
-          <section className="topology-stage" aria-label="Холст конструктора">
+          <section className="topology-stage" data-tour="topology-canvas" data-help="Холст: перетаскивание узлов, связи и состояния replicas" aria-label="Холст конструктора">
             <header className="stage-heading">
               <div><span>TOPOLOGY CANVAS</span><strong>{nodes.length ? "Перетаскивайте узлы за верхнюю панель" : "Холст пуст — добавьте первый элемент"}</strong></div>
               <div className="stage-legend"><span><i className="leader" /> Leader</span><span><i className="follower" /> Follower</span><span><i className="isr" /> ISR</span></div>
@@ -732,7 +738,7 @@ export default function TopologyConstructor({
             </div>
           </section>
 
-          <aside className="node-inspector">
+          <aside className="node-inspector" data-tour="node-inspector" data-help="Настройки выбранного узла, replicas и направленных связей">
             <header><span>INSPECTOR</span><strong>{selectedNode ? nodeMeta[selectedNode.kind].title : "Элемент не выбран"}</strong></header>
             {!selectedNode ? <div className="inspector-empty"><MousePointer2 size={27} /><p>Выберите узел на холсте, чтобы изменить его настройки и связи.</p></div> : <>
               <div className={`inspector-node-title ${selectedNode.kind}`}><span>{kindIcon(selectedNode.kind, 21)}</span><input value={selectedNode.label} onChange={(event) => updateNode(selectedNode.id, (node) => ({ ...node, label: event.target.value }))} aria-label="Название элемента" /></div>
@@ -798,7 +804,7 @@ export default function TopologyConstructor({
           </aside>
         </div>
 
-        <section className="constructor-event-lab" aria-label="Запуск event по собственной топологии">
+        <section className="constructor-event-lab" data-tour="event-runner" data-help="Запуск event по фактически собранной топологии" aria-label="Запуск event по собственной топологии">
           <header><div><span><Send size={15} /> EVENT RUNNER</span><h2>Проверьте путь по собранной схеме</h2><p>Симулятор вычислит partition, найдёт Leader и ISR, затем определит Consumer и sink по вашим связям.</p></div><button className="constructor-send" onClick={simulateEvent} disabled={!effectiveProducerId || !effectiveTopicId || !eventPayload.trim()}><Send size={17} /> Отправить event</button></header>
           <div className="event-runner-grid">
             <div className="runner-inputs">
