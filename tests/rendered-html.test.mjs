@@ -46,7 +46,7 @@ test("renders the sandbox, guided-scenario, and constructor entry points", async
   const html = await response.text();
 
   assert.equal(response.status, 200);
-  assert.match(html, /version 0\.7\.0/);
+  assert.match(html, /version 0\.7\.1/);
   assert.match(html, /Свободная песочница/);
   assert.match(html, /Учебные сценарии/);
   assert.match(html, /Конструктор/);
@@ -143,6 +143,9 @@ test("includes the integrated Consumer Group Lab and its failure model", async (
   assert.match(consumerLabSource, /committed/);
   assert.match(consumerLabSource, /Consumer Group готова/);
   assert.match(consumerLabSource, /Почему произошёл rebalance/);
+  assert.match(consumerLabSource, /На весь экран/);
+  assert.match(consumerLabSource, /is-fullscreen/);
+  assert.match(consumerLabSource, /event\.key === "Escape"/);
 });
 
 test("keeps contextual help voluntary and available in every mode", async () => {

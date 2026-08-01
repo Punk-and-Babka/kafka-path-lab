@@ -604,7 +604,7 @@ export default function TopologyConstructor({
       <header className="topbar">
         <a className="brand" href="#" aria-label="Kafka Path — главная">
           <span className="brand-mark"><Network size={19} /></span>
-          <span>Kafka Path</span><span className="version">version 0.7.0</span>
+          <span>Kafka Path</span><span className="version">version 0.7.1</span>
         </a>
         <div className="header-actions">
           <span className="mode-pill constructor"><Workflow size={14} /> Конструктор</span>

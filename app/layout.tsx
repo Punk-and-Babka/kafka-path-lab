@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Kafka Path 0.7.0 — Consumer Group Lab",
+  title: "Kafka Path 0.7.1 — крупный интерфейс Consumer Group Lab",
   description:
     "Интерактивная Kafka-лаборатория с Consumer Group Lab: rebalance, partition assignment, heartbeat, poll, offsets, commit и lag.",
   other: {

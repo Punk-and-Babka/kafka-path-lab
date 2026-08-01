@@ -3,8 +3,8 @@
 import {
   Activity, AlertTriangle, ArrowRight, Check, ChevronRight, CirclePause,
   CirclePlay, Clock3, Gauge, HeartPulse, Info, Pause, Play, Plus, Power,
-  RefreshCw, RotateCcw, Save, ServerCrash, SlidersHorizontal, TimerReset,
-  Users, WifiOff, X,
+  Maximize2, Minimize2, RefreshCw, RotateCcw, Save, ServerCrash,
+  SlidersHorizontal, TimerReset, Users, WifiOff, X,
 } from "lucide-react";
 import { useEffect, useMemo, useReducer, useState } from "react";
 
@@ -325,7 +325,22 @@ export default function ConsumerGroupLab({
 }) {
   const [state, dispatch] = useReducer(reducer, externalOffsets, createInitialState);
   const [autoFlow, setAutoFlow] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
   const externalKey = externalOffsets.join(":");
+
+  useEffect(() => {
+    if (!fullscreen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setFullscreen(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [fullscreen]);
 
   useEffect(() => {
     dispatch({ type: "SYNC_EXTERNAL", offsets: externalOffsets });
@@ -360,7 +375,7 @@ export default function ConsumerGroupLab({
     return <section id="consumer-group-lab" className="consumer-lab-collapsed" aria-label="Consumer Group Lab">
       <div className="consumer-lab-launch-icon"><Users size={23} /></div>
       <div className="consumer-lab-launch-copy">
-        <span>ВСТРОЕНА В ОСНОВНУЮ ЦЕПОЧКУ · 0.7.0</span>
+        <span>ВСТРОЕНА В ОСНОВНУЮ ЦЕПОЧКУ · 0.7.1</span>
         <h2>Consumer Group Lab</h2>
         <p>Откройте группу, чтобы управлять Consumer, rebalance, poll(), heartbeat, offsets и lag.</p>
       </div>
@@ -375,14 +390,20 @@ export default function ConsumerGroupLab({
     </section>;
   }
 
-  return <section id="consumer-group-lab" className="consumer-group-lab" aria-labelledby="consumer-lab-title">
+  return <section id="consumer-group-lab" className={`consumer-group-lab ${fullscreen ? "is-fullscreen" : ""}`} aria-labelledby="consumer-lab-title">
     <header className="consumer-lab-header">
       <div>
-        <span><Users size={16} /> CONSUMER GROUP LAB · 0.7.0</span>
+        <span><Users size={18} /> CONSUMER GROUP LAB · 0.7.1</span>
         <h2 id="consumer-lab-title">Управляйте чтением после Topic</h2>
         <p>Topic и offsets общие с песочницей. Здесь видно, кто читает partition, когда возникает rebalance и почему position не равна committed offset.</p>
       </div>
-      <button className="consumer-lab-collapse" onClick={() => onExpandedChange(false)}><X size={16} /> Свернуть</button>
+      <div className="consumer-lab-view-actions">
+        <button className="consumer-lab-fullscreen" onClick={() => setFullscreen((value) => !value)} aria-pressed={fullscreen}>
+          {fullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+          {fullscreen ? "Обычный вид" : "На весь экран"}
+        </button>
+        <button className="consumer-lab-collapse" onClick={() => { setFullscreen(false); onExpandedChange(false); }}><X size={18} /> Свернуть</button>
+      </div>
     </header>
 
     <div className="consumer-lab-summary">

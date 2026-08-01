@@ -100,7 +100,7 @@ function GlossaryDialog({
   onClose: () => void;
 }) {
   return <div className="drawer-backdrop" onMouseDown={onClose}><section className="glossary-modal" role="dialog" aria-modal="true" aria-labelledby="glossary-title" onMouseDown={(event) => event.stopPropagation()}>
-    <div className="drawer-header"><div><span>Словарь Kafka Path · 0.7.0</span><h2 id="glossary-title">Термины Kafka</h2></div><button className="icon-button" onClick={onClose} aria-label="Закрыть словарь"><X size={24} /></button></div>
+    <div className="drawer-header"><div><span>Словарь Kafka Path · 0.7.1</span><h2 id="glossary-title">Термины Kafka</h2></div><button className="icon-button" onClick={onClose} aria-label="Закрыть словарь"><X size={24} /></button></div>
     <p className="drawer-intro">Короткая суть видна сразу. Откройте карточку, чтобы разобрать механику, пример в лаборатории и то, что важно проверить тестировщику.</p>
 
     <div className="glossary-toolbar">
@@ -1017,7 +1017,7 @@ export default function Home() {
       <header className="topbar">
         <a className="brand" href="#" aria-label="Kafka Path — главная">
           <span className="brand-mark"><Network size={19} /></span>
-          <span>Kafka Path</span><span className="version">version 0.7.0</span>
+          <span>Kafka Path</span><span className="version">version 0.7.1</span>
         </a>
         <div className="header-actions">
           <span className={`mode-pill ${isGuided ? "" : "sandbox"}`}>
