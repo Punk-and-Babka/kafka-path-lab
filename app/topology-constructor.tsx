@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  AlertTriangle, ArrowLeft, ArrowRight, Boxes, Check, ChevronRight,
+  AlertTriangle, ArrowLeft, ArrowRight, BookOpen, Boxes, Check, ChevronRight,
   CirclePause, CirclePlay, CircleX, Database, Download, Grip,
   Info, Link2, MousePointer2, Network, Play, Plus, Radio,
   RotateCcw, Send, Server, Settings2, ShieldCheck, Sparkles,
@@ -248,8 +248,10 @@ function isSavedTopology(value: unknown): value is SavedTopology {
 
 export default function TopologyConstructor({
   onModeChange,
+  onOpenGlossary,
 }: {
   onModeChange: (mode: LearningMode) => void;
+  onOpenGlossary: () => void;
 }) {
   const [nodes, setNodes] = useState<TopologyNode[]>(presetNodes);
   const [edges, setEdges] = useState<TopologyEdge[]>(presetEdges);
@@ -599,10 +601,15 @@ export default function TopologyConstructor({
       <header className="topbar">
         <a className="brand" href="#" aria-label="Kafka Path — главная">
           <span className="brand-mark"><Network size={19} /></span>
-          <span>Kafka Path</span><span className="version">version 0.6.1</span>
+          <span>Kafka Path</span><span className="version">version 0.6.2</span>
         </a>
         <div className="header-actions">
           <span className="mode-pill constructor"><Workflow size={14} /> Конструктор</span>
+          <button className="glossary-cta" onClick={onOpenGlossary} aria-haspopup="dialog">
+            <span className="glossary-cta-icon"><BookOpen size={19} /></span>
+            <span className="glossary-cta-copy"><strong>Словарь Kafka</strong><small>41 термин с примерами</small></span>
+            <span className="glossary-cta-badge" aria-hidden="true">41</span>
+          </button>
         </div>
       </header>
 

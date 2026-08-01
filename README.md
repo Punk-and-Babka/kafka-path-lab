@@ -1,8 +1,8 @@
-# Kafka Path 0.6.1 — Scenarios + Sandbox + Topology Constructor
+# Kafka Path 0.6.2 — Scenarios + Sandbox + Topology Constructor
 
 Интерактивная лаборатория Kafka на React, TypeScript и Vinext.
 
-Версия 0.6.1 объединяет три режима в одной визуальной системе, сохраняет hotfix маркера event и добавляет расширенный учебный словарь Kafka:
+Версия 0.6.2 объединяет три режима в одной визуальной системе, сохраняет hotfix маркера event, расширенный учебный словарь Kafka и делает справочник заметной частью интерфейса:
 
 - поиск по терминам и русским/английским синонимам;
 - фильтрация по пяти категориям;
@@ -120,7 +120,7 @@ Workflow уже находится в `.github/workflows/deploy-pages.yml`.
 
 ```bash
 git add -A
-git commit -m "Release 0.6.1 expanded glossary"
+git commit -m "Release 0.6.2 glossary UI polish"
 git push origin main
 ```
 

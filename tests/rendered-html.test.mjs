@@ -46,7 +46,7 @@ test("renders the sandbox, guided-scenario, and constructor entry points", async
   const html = await response.text();
 
   assert.equal(response.status, 200);
-  assert.match(html, /version 0\.6\.1/);
+  assert.match(html, /version 0\.6\.2/);
   assert.match(html, /Свободная песочница/);
   assert.match(html, /Учебные сценарии/);
   assert.match(html, /Конструктор/);
@@ -109,6 +109,10 @@ test("includes the expanded searchable QA-oriented glossary", async () => {
   ]);
 
   assert.match(simulatorSource, /Поиск по словарю/);
+  assert.match(simulatorSource, /className="glossary-cta"/);
+  assert.match(simulatorSource, /Словарь Kafka/);
+  assert.match(simulatorSource, /термин с примерами/);
+  assert.match(simulatorSource, /onOpenGlossary/);
   assert.match(simulatorSource, /glossaryCategory/);
   assert.match(simulatorSource, /Развернуть объяснение/);
   assert.match(simulatorSource, /Что проверить QA/);

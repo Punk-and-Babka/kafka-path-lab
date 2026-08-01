@@ -82,6 +82,60 @@ function formatTime(date: Date) {
   });
 }
 
+function GlossaryDialog({
+  entries,
+  query,
+  category,
+  onQueryChange,
+  onCategoryChange,
+  onClose,
+}: {
+  entries: typeof GLOSSARY;
+  query: string;
+  category: GlossaryCategory | "Все";
+  onQueryChange: (value: string) => void;
+  onCategoryChange: (value: GlossaryCategory | "Все") => void;
+  onClose: () => void;
+}) {
+  return <div className="drawer-backdrop" onMouseDown={onClose}><section className="glossary-modal" role="dialog" aria-modal="true" aria-labelledby="glossary-title" onMouseDown={(event) => event.stopPropagation()}>
+    <div className="drawer-header"><div><span>Словарь Kafka Path · 0.6.2</span><h2 id="glossary-title">Термины Kafka</h2></div><button className="icon-button" onClick={onClose} aria-label="Закрыть словарь"><X size={24} /></button></div>
+    <p className="drawer-intro">Короткая суть видна сразу. Откройте карточку, чтобы разобрать механику, пример в лаборатории и то, что важно проверить тестировщику.</p>
+
+    <div className="glossary-toolbar">
+      <label className="glossary-search">
+        <Search size={18} aria-hidden="true" />
+        <input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="Найти: offset, retry, lag…" aria-label="Поиск по словарю" />
+        {query && <button type="button" onClick={() => onQueryChange("")} aria-label="Очистить поиск"><X size={16} /></button>}
+      </label>
+      <div className="glossary-count"><strong>{entries.length}</strong><span>из {GLOSSARY.length} терминов</span></div>
+    </div>
+
+    <div className="glossary-categories" aria-label="Категории словаря">
+      {(["Все", ...GLOSSARY_CATEGORIES] as const).map((item) => <button type="button" key={item} className={category === item ? "active" : ""} onClick={() => onCategoryChange(item)} aria-pressed={category === item}>{item}</button>)}
+    </div>
+
+    {entries.length > 0 ? <div className="glossary-list">
+      {entries.map((entry, index) => <article key={entry.term}>
+        <span className="glossary-number">{String(index + 1).padStart(2, "0")}</span>
+        <div className="glossary-entry">
+          <div className="glossary-entry-heading"><div><span className="glossary-category">{entry.category}</span><h3>{entry.term}</h3></div></div>
+          <p className="glossary-summary">{entry.summary}</p>
+          <details className="glossary-details">
+            <summary><span>Развернуть объяснение</span><ChevronRight size={16} /></summary>
+            <div className="glossary-detail-grid">
+              <section><strong>Как это работает</strong><p>{entry.howItWorks}</p></section>
+              <section><strong>Пример в Kafka Path</strong><p>{entry.example}</p></section>
+              <section className="qa-focus"><strong>Что проверить QA</strong><p>{entry.qaFocus}</p></section>
+            </div>
+          </details>
+        </div>
+      </article>)}
+    </div> : <div className="glossary-empty"><Search size={24} /><strong>Ничего не найдено</strong><p>Попробуйте другой термин или выберите категорию «Все».</p><button type="button" onClick={() => { onQueryChange(""); onCategoryChange("Все"); }}>Сбросить фильтры</button></div>}
+
+    <div className="next-version glossary-note"><BookOpen size={18} /><div><strong>Словарь связан с лабораторией</strong><p>Примеры используют те же P0–P2, Brokers, offsets, ACK и consumer group, которые отображаются в симуляции.</p></div><ArrowRight size={17} /></div>
+  </section></div>;
+}
+
 function copyForStep(event: EventRecord | null, step: SimulationStep | null) {
   if (!event || !step) {
     return {
@@ -914,8 +968,29 @@ export default function Home() {
     ? (activeEvent.stage / (activeEvent.stepOrder.length - 1)) * (100 - timelineInset * 2)
     : 0;
 
+  useEffect(() => {
+    if (!showGlossary) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setShowGlossary(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [showGlossary]);
+
+  const glossaryDialog = showGlossary ? <GlossaryDialog
+    entries={filteredGlossary}
+    query={glossaryQuery}
+    category={glossaryCategory}
+    onQueryChange={setGlossaryQuery}
+    onCategoryChange={setGlossaryCategory}
+    onClose={() => setShowGlossary(false)}
+  /> : null;
+
   if (learningMode === "constructor") {
-    return <TopologyConstructor onModeChange={chooseLearningMode} />;
+    return <>
+      <TopologyConstructor onModeChange={chooseLearningMode} onOpenGlossary={() => setShowGlossary(true)} />
+      {glossaryDialog}
+    </>;
   }
 
   return (
@@ -923,16 +998,18 @@ export default function Home() {
       <header className="topbar">
         <a className="brand" href="#" aria-label="Kafka Path — главная">
           <span className="brand-mark"><Network size={19} /></span>
-          <span>Kafka Path</span><span className="version">version 0.6.1</span>
+          <span>Kafka Path</span><span className="version">version 0.6.2</span>
         </a>
         <div className="header-actions">
-          <button className="header-link" onClick={() => setShowGlossary(true)}>
-            <BookOpen size={16} /> Словарь
-          </button>
           <span className={`mode-pill ${isGuided ? "" : "sandbox"}`}>
             {isGuided ? <Sparkles size={14} /> : <Settings2 size={14} />}
             {isGuided ? "Учебный сценарий" : "Песочница"}
           </span>
+          <button className="glossary-cta" onClick={() => setShowGlossary(true)} aria-haspopup="dialog" aria-expanded={showGlossary}>
+            <span className="glossary-cta-icon"><BookOpen size={19} /></span>
+            <span className="glossary-cta-copy"><strong>Словарь Kafka</strong><small>{GLOSSARY.length} термин с примерами</small></span>
+            <span className="glossary-cta-badge" aria-hidden="true">{GLOSSARY.length}</span>
+          </button>
         </div>
       </header>
 
@@ -2099,43 +2176,7 @@ export default function Home() {
         </section>
       </div>}
 
-      {showGlossary && <div className="drawer-backdrop" onMouseDown={() => setShowGlossary(false)}><section className="glossary-modal" role="dialog" aria-modal="true" aria-labelledby="glossary-title" onMouseDown={(event) => event.stopPropagation()}>
-        <div className="drawer-header"><div><span>Словарь Kafka Path · 0.6.1</span><h2 id="glossary-title">Термины Kafka</h2></div><button className="icon-button" onClick={() => setShowGlossary(false)} aria-label="Закрыть словарь"><X size={24} /></button></div>
-        <p className="drawer-intro">Короткая суть видна сразу. Откройте карточку, чтобы разобрать механику, пример в лаборатории и то, что важно проверить тестировщику.</p>
-
-        <div className="glossary-toolbar">
-          <label className="glossary-search">
-            <Search size={18} aria-hidden="true" />
-            <input value={glossaryQuery} onChange={(event) => setGlossaryQuery(event.target.value)} placeholder="Найти: offset, retry, lag…" aria-label="Поиск по словарю" />
-            {glossaryQuery && <button type="button" onClick={() => setGlossaryQuery("")} aria-label="Очистить поиск"><X size={16} /></button>}
-          </label>
-          <div className="glossary-count"><strong>{filteredGlossary.length}</strong><span>из {GLOSSARY.length} терминов</span></div>
-        </div>
-
-        <div className="glossary-categories" aria-label="Категории словаря">
-          {(["Все", ...GLOSSARY_CATEGORIES] as const).map((category) => <button type="button" key={category} className={glossaryCategory === category ? "active" : ""} onClick={() => setGlossaryCategory(category)} aria-pressed={glossaryCategory === category}>{category}</button>)}
-        </div>
-
-        {filteredGlossary.length > 0 ? <div className="glossary-list">
-          {filteredGlossary.map((entry, index) => <article key={entry.term}>
-            <span className="glossary-number">{String(index + 1).padStart(2, "0")}</span>
-            <div className="glossary-entry">
-              <div className="glossary-entry-heading"><div><span className="glossary-category">{entry.category}</span><h3>{entry.term}</h3></div></div>
-              <p className="glossary-summary">{entry.summary}</p>
-              <details className="glossary-details">
-                <summary><span>Развернуть объяснение</span><ChevronRight size={16} /></summary>
-                <div className="glossary-detail-grid">
-                  <section><strong>Как это работает</strong><p>{entry.howItWorks}</p></section>
-                  <section><strong>Пример в Kafka Path</strong><p>{entry.example}</p></section>
-                  <section className="qa-focus"><strong>Что проверить QA</strong><p>{entry.qaFocus}</p></section>
-                </div>
-              </details>
-            </div>
-          </article>)}
-        </div> : <div className="glossary-empty"><Search size={24} /><strong>Ничего не найдено</strong><p>Попробуйте другой термин или выберите категорию «Все».</p><button type="button" onClick={() => { setGlossaryQuery(""); setGlossaryCategory("Все"); }}>Сбросить фильтры</button></div>}
-
-        <div className="next-version glossary-note"><BookOpen size={18} /><div><strong>Словарь связан с лабораторией</strong><p>Примеры используют те же P0–P2, Brokers, offsets, ACK и consumer group, которые отображаются в симуляции.</p></div><ArrowRight size={17} /></div>
-      </section></div>}
+      {glossaryDialog}
     </main>
   );
 }
