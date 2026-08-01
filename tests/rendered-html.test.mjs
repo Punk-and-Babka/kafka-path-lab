@@ -46,7 +46,7 @@ test("renders the sandbox, guided-scenario, and constructor entry points", async
   const html = await response.text();
 
   assert.equal(response.status, 200);
-  assert.match(html, /version 0\.7\.1/);
+  assert.match(html, /version 0\.7\.2/);
   assert.match(html, /Свободная песочница/);
   assert.match(html, /Учебные сценарии/);
   assert.match(html, /Конструктор/);
@@ -127,22 +127,28 @@ test("includes the expanded searchable QA-oriented glossary", async () => {
 });
 
 test("includes the integrated Consumer Group Lab and its failure model", async () => {
-  const [simulatorSource, consumerLabSource] = await Promise.all([
+  const [simulatorSource, consumerLabSource, consumerModelSource] = await Promise.all([
     readFile(new URL("../app/kafka-path-simulator.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/consumer-group-lab.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/consumer-group-model.ts", import.meta.url), "utf8"),
   ]);
 
   assert.match(simulatorSource, /<ConsumerGroupLab/);
-  assert.match(simulatorSource, /consumerExternalOffsets/);
+  assert.match(simulatorSource, /consumerExternalLeo/);
+  assert.match(simulatorSource, /consumerExternalHighWatermark/);
+  assert.match(simulatorSource, /produceLabRecords/);
   assert.match(simulatorSource, /openSandboxLab\("consumer-group-lab"\)/);
-  assert.match(consumerLabSource, /type GroupPhase = "EMPTY" \| "REBALANCING" \| "STABLE"/);
-  assert.match(consumerLabSource, /"range" \| "round-robin"/);
-  assert.match(consumerLabSource, /sessionTimeout/);
-  assert.match(consumerLabSource, /maxPollInterval/);
-  assert.match(consumerLabSource, /position/);
+  assert.match(consumerModelSource, /type GroupPhase = "EMPTY" \| "REBALANCING" \| "STABLE"/);
+  assert.match(consumerModelSource, /"range" \| "round-robin"/);
+  assert.match(consumerModelSource, /sessionTimeout/);
+  assert.match(consumerModelSource, /maxPollInterval/);
+  assert.match(consumerModelSource, /fetchPosition/);
+  assert.match(consumerModelSource, /processed/);
   assert.match(consumerLabSource, /committed/);
-  assert.match(consumerLabSource, /Consumer Group готова/);
-  assert.match(consumerLabSource, /Почему произошёл rebalance/);
+  assert.match(consumerModelSource, /Consumer Group готова/);
+  assert.match(consumerModelSource, /RebalanceInProgressException/);
+  assert.match(consumerLabSource, /Журнал coordinator и commit/);
+  assert.match(consumerLabSource, /Границы учебной модели/);
   assert.match(consumerLabSource, /На весь экран/);
   assert.match(consumerLabSource, /is-fullscreen/);
   assert.match(consumerLabSource, /event\.key === "Escape"/);

@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  AcksMode, BASE_OFFSETS, BROKER_COUNT, clusterRuntimeForScenario,
+  AcksMode, BASE_OFFSETS, BROKER_COUNT, classifyRecordAvailability, clusterRuntimeForScenario,
   DeliveryConfig, evaluateDelivery, EventRecord, hasProducerResult,
   isConsumed, isDeserialized, isFollowerReplicated, isLogVisible,
   isOffsetCommitted, isProcessed, isRetryResolved, isSinkWritten,
@@ -100,7 +100,7 @@ function GlossaryDialog({
   onClose: () => void;
 }) {
   return <div className="drawer-backdrop" onMouseDown={onClose}><section className="glossary-modal" role="dialog" aria-modal="true" aria-labelledby="glossary-title" onMouseDown={(event) => event.stopPropagation()}>
-    <div className="drawer-header"><div><span>Словарь Kafka Path · 0.7.1</span><h2 id="glossary-title">Термины Kafka</h2></div><button className="icon-button" onClick={onClose} aria-label="Закрыть словарь"><X size={24} /></button></div>
+    <div className="drawer-header"><div><span>Словарь Kafka Path · 0.7.2</span><h2 id="glossary-title">Термины Kafka</h2></div><button className="icon-button" onClick={onClose} aria-label="Закрыть словарь"><X size={24} /></button></div>
     <p className="drawer-intro">Короткая суть видна сразу. Откройте карточку, чтобы разобрать механику, пример в лаборатории и то, что важно проверить тестировщику.</p>
 
     <div className="glossary-toolbar">
@@ -158,12 +158,14 @@ function copyForStep(event: EventRecord | null, step: SimulationStep | null) {
   if (step.id === "leaderAppend" && !result.leaderAppended) {
     const reason = event.faultMode === "request-lost" && result.errorCode === "TimeoutException"
       ? "Produce request не дошёл до Leader, а retries=0."
-      : result.errorCode === "LeaderNotAvailable"
+      : !result.leaderOnline
         ? `Broker ${result.leaderBroker} с Leader недоступен.`
         : `Текущий ISR=${result.currentIsr}, а min.insync.replicas=${delivery.minInSyncReplicas}.`;
     return {
       title: "Leader не добавил record",
-      description: `${reason} Produce request завершится ошибкой ${result.errorCode ?? "ConfigException"}.`,
+      description: delivery.acks === "0"
+        ? `${reason} Producer не ждёт ACK и не может подтвердить этот факт.`
+        : `${reason} Produce request завершится ошибкой ${result.errorCode ?? "ConfigException"}.`,
       technical: delivery.acks === "all"
         ? "При acks=all Broker проверяет min.insync.replicas и может отклонить запись до append."
         : "Без доступного Leader append невозможен. Выбор нового Leader появится в версии 0.3.2.",
@@ -188,7 +190,7 @@ function copyForStep(event: EventRecord | null, step: SimulationStep | null) {
       return {
         title: "Followers недоступны",
         description: "Record остался только на Leader: доступных follower-replicas сейчас нет.",
-        technical: "При acks=0/1 min.insync.replicas не блокирует такую запись, но риск потери остаётся.",
+        technical: "При acks=0/1 min.insync.replicas не блокирует append, но до выполнения порога record не продвинет High Watermark и не будет видим Consumer.",
       };
     }
     return {
@@ -210,6 +212,13 @@ function copyForStep(event: EventRecord | null, step: SimulationStep | null) {
           technical: "Committed не всегда означает «переживёт сбой»: отдельно проверяйте размер ISR и число копий.",
         };
   }
+  if (step.id === "committed" && result.leaderAppended && !result.recordCommitted) {
+    return {
+      title: "High Watermark не продвинулся",
+      description: `Record appended на Leader, но ISR=${result.currentIsr} меньше min.insync.replicas=${delivery.minInSyncReplicas}.`,
+      technical: "Producer с acks=1 уже мог получить SUCCESS, однако Consumer не увидит этот record до выполнения условия репликации и min ISR.",
+    };
+  }
   if (step.id === "networkTimeout") {
     return event.faultMode === "ack-lost"
       ? {
@@ -220,7 +229,9 @@ function copyForStep(event: EventRecord | null, step: SimulationStep | null) {
       : {
           title: "Produce request потерян до Broker",
           description: "Первая попытка не достигла Leader, поэтому record и offset ещё не появились.",
-          technical: "В этом случае retry безопасен сам по себе: первая попытка физически ничего не записала.",
+          technical: delivery.acks === "0"
+            ? "Producer не ждёт ответа и считает send завершённым: retries не срабатывают, а результат остаётся неизвестным самому Producer."
+            : "В этом случае retry безопасен сам по себе: первая попытка физически ничего не записала.",
         };
   }
   if (step.id === "retrySend") {
@@ -313,6 +324,8 @@ export default function Home() {
   const [faultMode, setFaultMode] = useState<NetworkFaultMode>(scenario.faultMode);
   const [configErrorAccepted, setConfigErrorAccepted] = useState(false);
   const [events, setEvents] = useState<EventRecord[]>([]);
+  const [labRecords, setLabRecords] = useState<Array<{ id: string; partition: number; offset: number }>>([]);
+  const [keylessCounter, setKeylessCounter] = useState(0);
   const [activeEventId, setActiveEventId] = useState<string | null>(null);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -348,7 +361,8 @@ export default function Home() {
   const [autoFollow, setAutoFollow] = useState(true);
   const chainViewportRef = useRef<HTMLDivElement>(null);
   const chainMapRef = useRef<HTMLDivElement>(null);
-  const keylessCounter = useRef(0);
+  const labProducerCursor = useRef(0);
+  const labRecordCounter = useRef(1);
   const eventCounter = useRef(1);
 
   const activeEvent = events.find((event) => event.id === activeEventId) ?? null;
@@ -364,7 +378,7 @@ export default function Home() {
   const canSend = (!activeEvent || activeEvent.stage === activeEvent.stepOrder.length - 1)
     && !(isGuided && scenarioId === "same-key" && sameKeyCount >= SAME_KEY_VALUES.length);
   const nextKey = isGuided && scenarioId === "same-key" ? scenario.defaultKey : eventKey;
-  const previewPartition = resolvePartition(nextKey, events.length);
+  const previewPartition = resolvePartition(nextKey, keylessCounter);
   const clusterRuntime = useMemo(() => ({
     onlineBrokers,
     laggingReplicas,
@@ -410,22 +424,38 @@ export default function Home() {
   const inspectorResult = selectedEvent?.result ?? previewResult;
   const inspectorPartition = selectedEvent?.partition ?? previewPartition;
   const inspectorPartitionState = partitionStates[inspectorPartition];
-  const availableCopiesForEvent = (event: EventRecord) => {
+  const onlineCopiesForEvent = (event: EventRecord) => {
     if (!isLogVisible(event)) return 0;
-    const survivingOriginalCopies = event.result.onlineReplicaBrokers.filter((broker) =>
-      onlineBrokers.includes(broker));
-    if (!survivingOriginalCopies.length) return 0;
-    if (isRecordCommitted(event)) {
-      return partitionStates[event.partition].isrBrokers.length;
-    }
-    return survivingOriginalCopies.length;
+    return partitionStates[event.partition].isrBrokers.length;
   };
-  const inspectorCopies = selectedEvent
-    ? availableCopiesForEvent(selectedEvent)
+  const physicalCopiesForEvent = (event: EventRecord) => {
+    if (!isLogVisible(event)) return 0;
+    // Остановка Broker делает копию недоступной, но не стирает segment с диска.
+    // После catch-up число физических копий может вырасти вместе с текущим ISR.
+    return Math.max(event.result.totalCopies, onlineCopiesForEvent(event));
+  };
+  const isConsumerVisibleNow = useCallback((event: EventRecord) => {
+    if (isRecordCommitted(event)) return true;
+    const committedStage = event.stepOrder.indexOf("committed");
+    return isLogVisible(event)
+      && committedStage >= 0
+      && event.stage >= committedStage
+      && partitionStates[event.partition].isrBrokers.length >= event.delivery.minInSyncReplicas;
+  }, [partitionStates]);
+  const inspectorOnlineCopies = selectedEvent
+    ? onlineCopiesForEvent(selectedEvent)
     : inspectorResult.totalCopies;
-  const inspectorLost = Boolean(selectedEvent && isLogVisible(selectedEvent) && inspectorCopies === 0);
+  const inspectorPhysicalCopies = selectedEvent
+    ? physicalCopiesForEvent(selectedEvent)
+    : inspectorResult.totalCopies;
+  const inspectorAvailability = classifyRecordAvailability(
+    Boolean(selectedEvent && isLogVisible(selectedEvent)),
+    inspectorPhysicalCopies,
+    inspectorOnlineCopies,
+  );
+  const inspectorUnavailable = inspectorAvailability === "UNAVAILABLE";
   const inspectorCommitted = selectedEvent
-    ? isRecordCommitted(selectedEvent)
+    ? isConsumerVisibleNow(selectedEvent)
     : inspectorResult.recordCommitted;
   const inspectorProducerReady = selectedEvent
     ? selectedEvent.delivery.acks === "0" || hasProducerResult(selectedEvent)
@@ -441,22 +471,67 @@ export default function Home() {
     Array.from({ length: PARTITION_COUNT }, (_, partition) =>
       events.filter((event) => event.partition === partition && isLogVisible(event))),
   [events]);
-  const consumerExternalOffsets = useMemo(() =>
-    Array.from({ length: PARTITION_COUNT }, (_, partition) => BASE_OFFSETS[partition] + 1
-      + events
+  const labRecordsByPartition = useMemo(() =>
+    Array.from({ length: PARTITION_COUNT }, (_, partition) =>
+      labRecords.filter((record) => record.partition === partition)),
+  [labRecords]);
+  const nextTopicOffsets = useMemo(() => Array.from({ length: PARTITION_COUNT }, (_, partition) => {
+    const occupied = [
+      ...labRecordsByPartition[partition].map((record) => record.offset),
+      ...events
+        .filter((event) => event.partition === partition && event.result.recordsWritten > 0)
+        .flatMap((event) => [event.offset, ...(event.retryOffset === null ? [] : [event.retryOffset])]),
+    ];
+    return occupied.length ? Math.max(...occupied) + 1 : BASE_OFFSETS[partition] + 1;
+  }), [events, labRecordsByPartition]);
+  const consumerExternalLeo = useMemo(() => Array.from({ length: PARTITION_COUNT }, (_, partition) => {
+    const appended = [
+      ...labRecordsByPartition[partition].map((record) => record.offset),
+      ...events
         .filter((event) => event.partition === partition && isLogVisible(event))
-        .reduce((total, event) => total + 1
-          + (event.result.duplicateWritten && isRetryResolved(event) ? 1 : 0), 0)),
-  [events]);
-  const writtenRecordCount = (partition: number) =>
-    events
-      .filter((event) => event.partition === partition)
-      .reduce((total, event) => total + event.result.recordsWritten, 0);
-  const visibleRecordCount = (partition: number) =>
+        .flatMap((event) => [event.offset, ...(event.result.duplicateWritten && isRetryResolved(event) && event.retryOffset !== null ? [event.retryOffset] : [])]),
+    ];
+    return appended.length ? Math.max(...appended) + 1 : BASE_OFFSETS[partition] + 1;
+  }), [events, labRecordsByPartition]);
+  const consumerExternalHighWatermark = useMemo(() => Array.from({ length: PARTITION_COUNT }, (_, partition) => {
+    const visibility = new Map<number, boolean>();
+    labRecordsByPartition[partition].forEach((record) => visibility.set(record.offset, true));
     events
       .filter((event) => event.partition === partition && isLogVisible(event))
-      .reduce((total, event) =>
-        total + 1 + (event.result.duplicateWritten && isRetryResolved(event) ? 1 : 0), 0);
+      .forEach((event) => {
+        visibility.set(event.offset, isConsumerVisibleNow(event));
+        if (event.result.duplicateWritten && isRetryResolved(event) && event.retryOffset !== null) {
+          visibility.set(event.retryOffset, isConsumerVisibleNow(event));
+        }
+      });
+    let highWatermark = BASE_OFFSETS[partition] + 1;
+    while (visibility.get(highWatermark) === true) highWatermark += 1;
+    return highWatermark;
+  }), [events, isConsumerVisibleNow, labRecordsByPartition]);
+  const mainProducerLocked = Boolean(
+    activeEvent && activeEvent.stage < activeEvent.stepOrder.length - 1,
+  );
+  const produceLabRecords = useCallback((count: number) => {
+    if (mainProducerLocked || count <= 0) return;
+    setLabRecords((current) => {
+      const leo = [...nextTopicOffsets];
+      current.forEach((record) => {
+        leo[record.partition] = Math.max(leo[record.partition], record.offset + 1);
+      });
+      const created = Array.from({ length: count }, () => {
+        const partition = labProducerCursor.current % PARTITION_COUNT;
+        labProducerCursor.current += 1;
+        const record = {
+          id: `lab_${String(labRecordCounter.current++).padStart(3, "0")}`,
+          partition,
+          offset: leo[partition],
+        };
+        leo[partition] += 1;
+        return record;
+      });
+      return [...current, ...created];
+    });
+  }, [mainProducerLocked, nextTopicOffsets]);
   const partitionDetails = selectedPartition === null
     ? null
     : eventsByPartition[selectedPartition];
@@ -633,11 +708,13 @@ export default function Home() {
     setDeliveryConfig({ ...next.config });
     setFaultMode(next.faultMode);
     setConfigErrorAccepted(false);
-    setEvents([]); setActiveEventId(null); setSelectedEventId(null);
+    setEvents([]); setLabRecords([]); setActiveEventId(null); setSelectedEventId(null);
     setPlaying(false); setShowSettings(false); setShowAdvancedConfig(true);
     setInspectorTab("delivery");
     applyScenarioCluster(next);
-    keylessCounter.current = 0;
+    setKeylessCounter(0);
+    labProducerCursor.current = 0;
+    labRecordCounter.current = 1;
   };
 
   const chooseLearningMode = (mode: LearningMode) => {
@@ -657,11 +734,13 @@ export default function Home() {
     setDeliveryConfig({ ...scenario.config });
     setFaultMode(scenario.faultMode);
     setConfigErrorAccepted(false);
-    setEvents([]); setActiveEventId(null); setSelectedEventId(null);
+    setEvents([]); setLabRecords([]); setActiveEventId(null); setSelectedEventId(null);
     setPlaying(false); setShowSettings(false); setShowAdvancedConfig(true);
     setInspectorTab("delivery");
     applyScenarioCluster(scenario);
-    keylessCounter.current = 0;
+    setKeylessCounter(0);
+    labProducerCursor.current = 0;
+    labRecordCounter.current = 1;
   };
 
   const sendEvent = () => {
@@ -671,9 +750,9 @@ export default function Home() {
     const key = guidedSameKey ? scenario.defaultKey : eventKey;
     const value = guidedSameKey
       ? SAME_KEY_VALUES[Math.min(sequence, SAME_KEY_VALUES.length - 1)] : eventValue;
-    const partition = resolvePartition(key, keylessCounter.current);
-    if (!key.trim()) keylessCounter.current += 1;
-    const offset = BASE_OFFSETS[partition] + writtenRecordCount(partition) + 1;
+    const partition = resolvePartition(key, keylessCounter);
+    if (!key.trim()) setKeylessCounter((current) => current + 1);
+    const offset = nextTopicOffsets[partition];
     const id = `evt_${String(eventCounter.current++).padStart(3, "0")}`;
     const delivery = { ...deliveryConfig };
     const result = evaluateDelivery(delivery, partition, clusterRuntime, faultMode);
@@ -707,9 +786,11 @@ export default function Home() {
   };
 
   const resetScenario = () => {
-    setEvents([]); setActiveEventId(null); setSelectedEventId(null);
+    setEvents([]); setLabRecords([]); setActiveEventId(null); setSelectedEventId(null);
     setPlaying(false);
-    setShowSettings(false); setCopied(false); keylessCounter.current = 0;
+    setShowSettings(false); setCopied(false); setKeylessCounter(0);
+    labProducerCursor.current = 0;
+    labRecordCounter.current = 1;
   };
 
   const changeMessageKind = (kind: "event" | "file") => {
@@ -771,7 +852,7 @@ export default function Home() {
   };
 
   const selectFaultMode = (mode: NetworkFaultMode) => {
-    if (isGuided || mode === faultMode) return;
+    if (isGuided || mode === faultMode || (deliveryConfig.acks === "0" && mode === "ack-lost")) return;
     setFaultMode(mode);
     setConfigErrorAccepted(false);
     resetScenario();
@@ -867,6 +948,9 @@ export default function Home() {
   ) => {
     if (isGuided) return;
     setDeliveryConfig((current) => ({ ...current, [key]: value }));
+    if (key === "acks" && value === "0" && faultMode === "ack-lost") {
+      setFaultMode("none");
+    }
     setConfigErrorAccepted(false);
     if (events.length) resetScenario();
   };
@@ -1017,7 +1101,7 @@ export default function Home() {
       <header className="topbar">
         <a className="brand" href="#" aria-label="Kafka Path — главная">
           <span className="brand-mark"><Network size={19} /></span>
-          <span>Kafka Path</span><span className="version">version 0.7.1</span>
+          <span>Kafka Path</span><span className="version">version 0.7.2</span>
         </a>
         <div className="header-actions">
           <span className={`mode-pill ${isGuided ? "" : "sandbox"}`}>
@@ -1239,7 +1323,8 @@ export default function Home() {
               <select
                 id="rf-select"
                 value={deliveryConfig.replicationFactor}
-                disabled={isGuided}
+                disabled={isGuided || (deliveryConfig.acks === "0" && option.id === "ack-lost")}
+                title={deliveryConfig.acks === "0" && option.id === "ack-lost" ? "При acks=0 Producer не ожидает ACK" : undefined}
                 onChange={(event) => setConfig("replicationFactor", Number(event.target.value))}
               >
                 {[1, 2, 3].map((value) => <option key={value} value={value}>{value}</option>)}
@@ -1247,7 +1332,7 @@ export default function Home() {
             </div>
 
             <div className="config-control">
-              <label htmlFor="min-isr-select">min.insync.replicas <small>Порог для acks=all</small></label>
+              <label htmlFor="min-isr-select">min.insync.replicas <small>acks=all + consumer visibility</small></label>
               <select
                 id="min-isr-select"
                 value={deliveryConfig.minInSyncReplicas}
@@ -1345,6 +1430,11 @@ export default function Home() {
               <span>ISR / КОПИИ</span>
               <strong>{previewResult.currentIsr} ISR · {previewResult.totalCopies} copies</strong>
               <small>RF={deliveryConfig.replicationFactor}, min ISR={deliveryConfig.minInSyncReplicas}</small>
+            </article>
+            <article className={previewResult.recordCommitted ? "good" : previewResult.leaderAppended ? "warn" : "neutral"}>
+              <span>CONSUMER УВИДИТ</span>
+              <strong>{previewResult.recordCommitted ? "Да · HW продвинется" : previewResult.leaderAppended ? "Нет · ниже HW" : "Нет record"}</strong>
+              <small>видимость требует ISR ≥ min ISR</small>
             </article>
             <article className={
               !previewResult.leaderAppended ? "neutral"
@@ -1620,8 +1710,11 @@ export default function Home() {
 
         {!isGuided && <ConsumerGroupLab
           topicName={topicName || TOPIC_NAME}
-          externalOffsets={consumerExternalOffsets}
+          externalLeo={consumerExternalLeo}
+          externalHighWatermark={consumerExternalHighWatermark}
           expanded={showConsumerLab}
+          producerLocked={mainProducerLocked}
+          onProduceRecords={produceLabRecords}
           onExpandedChange={setShowConsumerLab}
         />}
 
@@ -1696,33 +1789,45 @@ export default function Home() {
               <section className="topic-journal">
                 <header><div><span>LOGICAL VIEW · TOPIC</span><strong>{activeEvent?.topic || topicName || TOPIC_NAME}</strong></div><b><Layers3 size={13} /> FIFO / partition · append-only</b></header>
                 <div className="partition-logs">
-                  {eventsByPartition.map((partitionEvents, p) => <div key={p} className={`partition-log ${activeEvent?.partition === p && activeEvent.stage >= 1 ? "selected" : ""}`}>
-                    <button className="partition-name" onClick={() => setSelectedPartition(p)} aria-label={`Открыть детали partition P${p}`}>
-                      <span><strong>P{p}</strong><small>next {BASE_OFFSETS[p] + visibleRecordCount(p) + 1}</small></span>
-                      <ChevronRight size={14} />
-                    </button>
-                    <div className="log-track"><span className="base-segment">… {BASE_OFFSETS[p]}</span>
-                      {partitionEvents.map((event) => {
-                        const eventLost = availableCopiesForEvent(event) === 0;
-                        const duplicateVisible = event.result.duplicateWritten && isRetryResolved(event);
-                        return <Fragment key={event.id}>
-                          <button
-                            className={`log-event original ${selectedEvent?.id === event.id ? "selected-event" : ""} ${eventLost ? "lost" : isRecordCommitted(event) ? "committed" : ""}`}
+                  {eventsByPartition.map((partitionEvents, p) => {
+                    const journalRecords = [
+                      ...labRecordsByPartition[p].map((record) => ({ kind: "lab" as const, offset: record.offset, id: record.id, event: null })),
+                      ...partitionEvents.flatMap((event) => [
+                        { kind: "main" as const, offset: event.offset, id: event.id, event },
+                        ...(event.result.duplicateWritten && isRetryResolved(event) && event.retryOffset !== null
+                          ? [{ kind: "duplicate" as const, offset: event.retryOffset, id: `${event.id}-duplicate`, event }]
+                          : []),
+                      ]),
+                    ].sort((left, right) => left.offset - right.offset);
+                    return <div key={p} className={`partition-log ${activeEvent?.partition === p && activeEvent.stage >= 1 ? "selected" : ""}`}>
+                      <button className="partition-name" onClick={() => setSelectedPartition(p)} aria-label={`Открыть детали partition P${p}`}>
+                        <span><strong>P{p}</strong><small>LEO {consumerExternalLeo[p]} · HW {consumerExternalHighWatermark[p]}</small></span>
+                        <ChevronRight size={14} />
+                      </button>
+                      <div className="log-track"><span className="base-segment">… {BASE_OFFSETS[p]}</span>
+                        {journalRecords.map((record) => {
+                          if (record.kind === "lab") {
+                            return <button key={record.id} className="log-event lab-record committed" onClick={() => setShowConsumerLab(true)} title={`${record.id}, offset=${record.offset}, Consumer Lab Producer`}><i /><b>{record.offset}</b><small>LAB</small></button>;
+                          }
+                          const event = record.event!;
+                          const eventUnavailable = classifyRecordAvailability(
+                            isLogVisible(event),
+                            physicalCopiesForEvent(event),
+                            onlineCopiesForEvent(event),
+                          ) === "UNAVAILABLE";
+                          return <button
+                            key={record.id}
+                            className={`log-event ${record.kind === "duplicate" ? "duplicate" : "original"} ${selectedEvent?.id === event.id ? "selected-event" : ""} ${eventUnavailable ? "unavailable" : isConsumerVisibleNow(event) ? "committed" : ""}`}
                             onClick={() => setSelectedEventId(event.id)}
-                            title={`${event.id}, offset=${event.offset}${eventLost ? ", lost" : ""}`}
-                          ><i /><b>{event.offset}</b><small>{eventLost ? "LOST" : "ORIG"}</small></button>
-                          {duplicateVisible && <button
-                            className={`log-event duplicate ${selectedEvent?.id === event.id ? "selected-event" : ""}`}
-                            onClick={() => setSelectedEventId(event.id)}
-                            title={`${event.id}, retry duplicate, offset=${event.retryOffset}`}
-                          ><i /><b>{event.retryOffset}</b><small>DUP</small></button>}
-                        </Fragment>;
-                      })}
-                      {!partitionEvents.length && <span className="empty-log">новых записей нет</span>}
-                    </div>
-                  </div>)}
+                            title={`${event.id}, offset=${record.offset}${record.kind === "duplicate" ? ", retry duplicate" : eventUnavailable ? ", offline copy" : ""}`}
+                          ><i /><b>{record.offset}</b><small>{record.kind === "duplicate" ? "DUP" : eventUnavailable ? "OFFLINE" : "ORIG"}</small></button>;
+                        })}
+                        {!journalRecords.length && <span className="empty-log">новых записей нет</span>}
+                      </div>
+                    </div>;
+                  })}
                 </div>
-                <footer><span><i className="dot appended" /> appended</span><span><i className="dot committed" /> committed</span><span>Нажмите P0–P2 для деталей</span></footer>
+                <footer><span><i className="dot appended" /> appended</span><span><i className="dot committed" /> до High Watermark</span><span>LEO и HW показаны отдельно</span></footer>
               </section>
 
               {brokerReplicas.map((replicas, index) => {
@@ -1891,13 +1996,13 @@ export default function Home() {
                     <div><dt>leader at send</dt><dd>{selectedEvent ? `Broker ${selectedEvent.result.leaderBroker}` : "—"}</dd></div>
                     <div><dt>followers</dt><dd>{selectedEvent ? selectedEvent.result.onlineReplicaBrokers.filter((broker) => broker !== selectedEvent.result.leaderBroker).map((broker) => `B${broker}`).join(", ") || "none" : "—"}</dd></div>
                     <div><dt>acks</dt><dd>{selectedEvent?.delivery.acks ?? "—"}</dd></div>
-                    <div><dt>copies now</dt><dd>{selectedEvent ? inspectorCopies : "—"}</dd></div>
+                    <div><dt>online / physical copies</dt><dd>{selectedEvent ? `${inspectorOnlineCopies} / ${inspectorPhysicalCopies}` : "—"}</dd></div>
                     <div><dt>producerId</dt><dd>{selectedEvent?.producerId ?? "—"}</dd></div>
                     <div><dt>epoch / sequence</dt><dd>{selectedEvent ? `${selectedEvent.producerEpoch} / ${selectedEvent.producerSequence}` : "—"}</dd></div>
                     <div><dt>attempts</dt><dd>{selectedEvent?.result.attempts ?? "—"}</dd></div>
                     <div><dt>retry offset</dt><dd>{selectedEvent?.retryOffset ?? "—"}</dd></div>
                   </dl>
-                  <div className="event-flags"><span className={selectedEvent && isLogVisible(selectedEvent) ? "complete" : ""}>appended</span><span className={selectedEvent && isRecordCommitted(selectedEvent) ? "complete" : ""}>committed</span><span className={selectedEvent?.result.duplicateWritten ? "duplicate" : selectedEvent?.result.duplicateSuppressed ? "complete" : ""}>{selectedEvent?.result.duplicateWritten ? "duplicate" : selectedEvent?.result.duplicateSuppressed ? "deduplicated" : "no retry"}</span><span className={inspectorLost ? "lost" : ""}>{inspectorLost ? "record lost" : "data online"}</span><span className={selectedEvent && isOffsetCommitted(selectedEvent) ? "complete" : ""}>offset saved</span></div>
+                  <div className="event-flags"><span className={selectedEvent && isLogVisible(selectedEvent) ? "complete" : ""}>appended</span><span className={selectedEvent && isConsumerVisibleNow(selectedEvent) ? "complete" : ""}>consumer-visible</span><span className={selectedEvent?.result.duplicateWritten ? "duplicate" : selectedEvent?.result.duplicateSuppressed ? "complete" : ""}>{selectedEvent?.result.duplicateWritten ? "duplicate" : selectedEvent?.result.duplicateSuppressed ? "deduplicated" : "no retry"}</span><span className={inspectorUnavailable ? "unavailable" : "complete"}>{inspectorUnavailable ? "offline copy" : "data online"}</span><span className={selectedEvent && isOffsetCommitted(selectedEvent) ? "complete" : ""}>offset saved</span></div>
                   <div className="payload-preview">
                     <span>payload <button onClick={copyPayload}>{copied ? <Check size={12} /> : <Braces size={12} />}{copied ? "Скопировано" : "Копировать"}</button></span>
                     <code>{selectedEvent?.value ?? eventValue}</code>
@@ -1920,16 +2025,17 @@ export default function Home() {
                   </div>
                   <div className="delivery-facts">
                     <div><span>Kafka append</span><b>{selectedEvent
-                      ? inspectorLost ? "record lost after failure"
+                      ? inspectorUnavailable ? `offset ${selectedEvent.offset} сохранён на offline replica`
                         : isLogVisible(selectedEvent) ? `P${inspectorPartition} / offset ${selectedEvent.offset}` : "ещё не выполнен"
                       : inspectorResult.leaderAppended ? `P${inspectorPartition} / offset next` : "нет record"}</b></div>
                     <div><span>Current Leader</span><b>{inspectorPartitionState.leaderOnline ? `B${inspectorPartitionState.leaderBroker}` : "NO LEADER"}</b></div>
                     <div><span>Current ISR</span><b>[{inspectorPartitionState.isrBrokers.map((broker) => `B${broker}`).join(", ") || "empty"}]</b></div>
-                    <div><span>Physical copies now</span><b>{inspectorCopies} / RF {inspectorDelivery.replicationFactor}</b></div>
+                    <div><span>Online copies now</span><b>{inspectorOnlineCopies} / RF {inspectorDelivery.replicationFactor}</b></div>
+                    <div><span>Physical copies tracked</span><b>{inspectorPhysicalCopies} / RF {inspectorDelivery.replicationFactor}</b></div>
                     <div><span>Produce requests</span><b>{inspectorResult.attempts}</b></div>
                     <div><span>Records written</span><b>{inspectorResult.recordsWritten}</b></div>
-                    <div><span>Record state</span><b>{inspectorLost ? "LOST" : inspectorCommitted ? "committed" : "not committed"}</b></div>
-                    <div><span>Next Leader failure</span><b>{inspectorCopies === 0 ? "нет record" : inspectorCopies >= 2 ? "переживёт" : "может потеряться"}</b></div>
+                    <div><span>Record state</span><b>{inspectorUnavailable ? "UNAVAILABLE · OFFLINE COPY" : inspectorCommitted ? "consumer-visible" : "appended · below HW"}</b></div>
+                    <div><span>Next Leader failure</span><b>{inspectorUnavailable ? "сначала восстановите Broker" : inspectorOnlineCopies === 0 ? "нет record" : inspectorOnlineCopies >= 2 ? "переживёт" : "может потеряться"}</b></div>
                     <div><span>Idempotence</span><b>{inspectorDelivery.idempotence ? "enabled" : "disabled"}</b></div>
                   </div>
                   {selectedEvent && selectedEvent.faultMode !== "none" && (
@@ -2046,8 +2152,8 @@ export default function Home() {
           </header>
 
           <div className="partition-stats">
-            <article><span>Следующий offset</span><strong>{BASE_OFFSETS[selectedPartition] + visibleRecordCount(selectedPartition) + 1}</strong></article>
-            <article><span>Новых records</span><strong>{visibleRecordCount(selectedPartition)}</strong></article>
+            <article><span>LEO · следующий offset</span><strong>{consumerExternalLeo[selectedPartition]}</strong></article>
+            <article><span>High Watermark</span><strong>{consumerExternalHighWatermark[selectedPartition]}</strong></article>
             <article><span>Current Leader</span><strong>{selectedPartitionState?.leaderOnline ? `Broker ${selectedPartitionState.leaderBroker}` : "NO LEADER"}</strong></article>
             <article><span>Current ISR</span><strong>[{selectedPartitionState?.isrBrokers.map((broker) => `B${broker}`).join(", ") || "empty"}]</strong></article>
           </div>
@@ -2120,20 +2226,28 @@ export default function Home() {
               <div className="record-row base-record" role="row">
                 <strong>… {BASE_OFFSETS[selectedPartition]}</strong><span>Предыдущие записи</span><span>committed</span><span>история</span><span>—</span>
               </div>
+              {labRecordsByPartition[selectedPartition].map((record) => <div className="record-row lab-summary-record" role="row" key={record.id}>
+                <strong>{record.offset}</strong><span><b>{record.id}</b><small>Consumer Lab Producer · key: null</small></span><span className="state-ok">consumer-visible</span><span>общий Topic</span><span>доступен sandbox-cg</span>
+              </div>)}
               {partitionDetails?.map((event) => {
-                const copiesNow = availableCopiesForEvent(event);
-                const lost = copiesNow === 0;
+                const onlineCopies = onlineCopiesForEvent(event);
+                const physicalCopies = physicalCopiesForEvent(event);
+                const unavailable = classifyRecordAvailability(
+                  isLogVisible(event),
+                  physicalCopies,
+                  onlineCopies,
+                ) === "UNAVAILABLE";
                 const openEvent = () => {
                   setSelectedEventId(event.id);
                   setInspectorTab("event");
                   setSelectedPartition(null);
                 };
                 return <Fragment key={event.id}>
-                  <button className={`record-row ${selectedEvent?.id === event.id ? "selected" : ""} ${lost ? "lost" : ""}`} role="row" onClick={openEvent}>
+                  <button className={`record-row ${selectedEvent?.id === event.id ? "selected" : ""} ${unavailable ? "unavailable" : ""}`} role="row" onClick={openEvent}>
                     <strong>{event.offset}</strong>
                     <span><b>{event.id}</b><small>ORIGINAL · key: {event.key || "null"}</small></span>
-                    <span className={lost ? "state-lost" : isRecordCommitted(event) ? "state-ok" : "state-warn"}>{lost ? "lost" : isRecordCommitted(event) ? "committed" : "appended"}</span>
-                    <span>{lost ? "0 copies" : `${copiesNow} copies`}</span>
+                    <span className={unavailable ? "state-unavailable" : isConsumerVisibleNow(event) ? "state-ok" : "state-warn"}>{unavailable ? "unavailable" : isConsumerVisibleNow(event) ? "consumer-visible" : "appended"}</span>
+                    <span>{onlineCopies} online / {physicalCopies} physical</span>
                     <span className={isOffsetCommitted(event) ? "state-ok" : ""}>{isOffsetCommitted(event) ? "offset saved" : isConsumed(event) ? "fetched" : "ожидает"}</span>
                   </button>
                   {event.result.duplicateWritten && isRetryResolved(event) && (
@@ -2141,7 +2255,7 @@ export default function Home() {
                       <strong>{event.retryOffset}</strong>
                       <span><b>{event.id}</b><small>DUPLICATE · same key / payload</small></span>
                       <span className="state-duplicate">duplicate</span>
-                      <span>{copiesNow} copies</span>
+                      <span>{onlineCopies} online / {physicalCopies} physical</span>
                       <span>отдельный offset</span>
                     </button>
                   )}

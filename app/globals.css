@@ -8333,7 +8333,7 @@ button.record-row:hover,
   }
 }
 
-/* Kafka Path 0.7.1 — readable Consumer Group Lab UI. */
+/* Kafka Path 0.7.1 — readable Consumer Group Lab UI retained in 0.7.2. */
 .consumer-lab-collapsed {
   min-height: 116px;
   padding: 20px 22px;
@@ -8810,4 +8810,118 @@ button.record-row:hover,
   .consumer-qa-panel,
   .consumer-topic-panel,
   .consumer-members-panel { padding: 14px; }
+}
+
+/* Kafka Path 0.7.2 — correctness and model-boundary states. */
+.delivery-forecast {
+  grid-template-columns: repeat(auto-fit, minmax(175px, 1fr));
+}
+
+.consumer-protocol-note {
+  margin-top: 14px;
+  padding: 10px 13px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #5e657b;
+  background: #f4f2ff;
+  border: 1px solid #ddd8fb;
+  border-radius: 10px;
+  font-size: 11px;
+}
+
+.consumer-protocol-note svg { color: #6652d3; flex: 0 0 auto; }
+.consumer-lab-controls { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.consumer-lab-controls output {
+  width: 100%;
+  height: 46px;
+  padding: 0 13px;
+  display: flex;
+  align-items: center;
+  color: #454d66;
+  background: #fff;
+  border: 1px solid #dcdfe8;
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+.consumer-member-card.excluded,
+.consumer-member-card.stopped {
+  opacity: .7;
+  background: #f6f6f8;
+  border-top-color: #aeb2bd;
+}
+
+.consumer-member-card.crashed {
+  opacity: 1;
+  background: #fff7f8;
+  border-top-color: #c55768;
+}
+
+.consumer-member-card.excluded > header > b,
+.consumer-member-card.crashed > header > b {
+  color: #a94b59;
+  background: #ffe9ed;
+}
+
+.member-actions button:disabled { opacity: .55; cursor: not-allowed; }
+.offset-row {
+  min-width: 1120px;
+  grid-template-columns: .62fr .8fr .55fr .55fr .68fr .85fr .85fr .55fr 2.1fr;
+}
+
+.lag-track.risk { background: #fff0e7; }
+.lag-track.risk i { background: linear-gradient(90deg, #f1b067, #dc6f5f); }
+.lag-track.risk small { color: #8d433a; }
+
+.consumer-model-boundaries {
+  margin-top: 18px;
+  padding: 16px 18px;
+  color: #596178;
+  background: linear-gradient(145deg, #fffaf0, #fffdf8);
+  border: 1px solid #eadcbf;
+  border-radius: 14px;
+}
+
+.consumer-model-boundaries > div { display: flex; align-items: flex-start; gap: 10px; }
+.consumer-model-boundaries > div svg { color: #ae7528; flex: 0 0 auto; }
+.consumer-model-boundaries strong,
+.consumer-model-boundaries small { display: block; }
+.consumer-model-boundaries strong { color: #3f465a; font-size: 14px; }
+.consumer-model-boundaries small { margin-top: 3px; font-size: 10px; }
+.consumer-model-boundaries ul {
+  margin: 12px 0 0;
+  padding-left: 22px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 22px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.log-event.unavailable {
+  color: #9c5e20;
+  background: #fff1dd;
+  border-color: #e9c892;
+}
+
+.log-event.unavailable i { background: #c98232; }
+.log-event.lab-record {
+  color: #247a60;
+  background: #e6f7f0;
+  border-color: #aadcc9;
+}
+.log-event.lab-record i { background: #36a77f; }
+.event-flags span.unavailable,
+.state-unavailable { color: #a05f20; background: #fff1dc; }
+.record-row.unavailable { background: #fffaf1; }
+.record-row.lab-summary-record { background: #f3fbf8; }
+
+@media (max-width: 1100px) {
+  .consumer-lab-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 700px) {
+  .consumer-lab-controls,
+  .consumer-model-boundaries ul { grid-template-columns: 1fr; }
 }

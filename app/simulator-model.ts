@@ -47,6 +47,7 @@ export type LifecycleKey =
   | "offsetCommit";
 export type LifecycleStatus = "waiting" | "active" | "done" | "skipped" | "failed";
 export type StepDisposition = "success" | "skipped" | "failed";
+export type RecordAvailability = "NOT_APPENDED" | "AVAILABLE" | "UNAVAILABLE" | "LOST";
 
 export type DeliveryConfig = {
   acks: AcksMode;
@@ -189,9 +190,9 @@ export const STEPS: SimulationStep[] = [
   {
     id: "committed",
     short: "Commit",
-    title: "Kafka обновляет committed state",
-    description: "Event записан на всех репликах текущего ISR и становится доступен для обычного чтения.",
-    technical: "Committed record и надёжность при потере Leader — не одно и то же: при ISR=1 committed record имеет только одну копию.",
+    title: "High Watermark делает record видимым",
+    description: "Event записан на всех репликах текущего ISR, выполнен порог min.insync.replicas, и High Watermark может продвинуться.",
+    technical: "LEO и consumer-visible High Watermark — разные границы. При ISR меньше min.insync.replicas record может быть appended, но ещё не видим Consumer.",
     node: "committed",
   },
   {
@@ -263,7 +264,7 @@ export const STEPS: SimulationStep[] = [
     short: "Offset",
     title: "Consumer зафиксировал offset",
     description: "После успешной обработки Consumer сохранил позицию, с которой группа продолжит чтение.",
-    technical: "Consumer position и committed offset могут различаться. Здесь offset фиксируется после обработки.",
+    technical: "Fetch position, processed offset и committed offset могут различаться. Здесь ручной commit выполняется после обработки.",
     node: "offset",
   },
 ];
@@ -502,6 +503,17 @@ export function resolvePartition(key: string, keylessCounter: number) {
     : keylessCounter % PARTITION_COUNT;
 }
 
+export function classifyRecordAvailability(
+  appended: boolean,
+  physicalCopies: number,
+  onlineCopies: number,
+): RecordAvailability {
+  if (!appended) return "NOT_APPENDED";
+  if (onlineCopies > 0) return "AVAILABLE";
+  if (physicalCopies > 0) return "UNAVAILABLE";
+  return "LOST";
+}
+
 export function leaderForPartition(partition: number) {
   return partition + 1;
 }
@@ -574,8 +586,8 @@ export function stepOrderForConfig(
     "offsetCommit",
   ] as LifecycleKey[];
 
-  if (faultMode === "request-lost" && config.acks !== "0") {
-    if (config.retries === 0) {
+  if (faultMode === "request-lost") {
+    if (config.acks === "0" || config.retries === 0) {
       return [
         "producerSend",
         "partitioning",
@@ -653,15 +665,20 @@ export function evaluateDelivery(
   const leaderBroker = partitionState.leaderBroker;
   const leaderOnline = partitionState.leaderOnline;
   const currentIsr = leaderOnline ? partitionState.isrBrokers.length : 0;
-  const insufficientIsr =
+  const insufficientIsrForAll =
     config.acks === "all" && currentIsr < config.minInSyncReplicas;
-  const baseLeaderAppended =
-    configValid && leaderOnline && !insufficientIsr;
-  const effectiveFault = config.acks === "0" ? "none" : faultMode;
-  const requestLostWithoutRetry =
-    effectiveFault === "request-lost" && config.retries === 0 && baseLeaderAppended;
-  const leaderAppended = baseLeaderAppended && !requestLostWithoutRetry;
-  const ackLostAfterWrite = effectiveFault === "ack-lost" && baseLeaderAppended;
+  const brokerCanAppend =
+    configValid && leaderOnline && !insufficientIsrForAll;
+  // acks=0 не ждёт ответа: request loss остаётся реальным сетевым исходом,
+  // но "ACK lost" к этому режиму неприменим, потому что ACK не ожидается.
+  const effectiveFault: NetworkFaultMode = faultMode === "ack-lost" && config.acks === "0"
+    ? "none"
+    : faultMode;
+  const requestLost = effectiveFault === "request-lost";
+  const retryCanRecoverRequest = requestLost && config.acks !== "0" && config.retries > 0;
+  const requestReachedBroker = !requestLost || retryCanRecoverRequest;
+  const leaderAppended = brokerCanAppend && requestReachedBroker;
+  const ackLostAfterWrite = effectiveFault === "ack-lost" && leaderAppended;
   const duplicateWritten =
     ackLostAfterWrite && config.retries > 0 && !config.idempotence;
   const duplicateSuppressed =
@@ -669,7 +686,9 @@ export function evaluateDelivery(
   const recordsWritten = leaderAppended ? 1 + (duplicateWritten ? 1 : 0) : 0;
   const totalCopies = leaderAppended ? Math.max(1, onlineReplicaBrokers.length) : 0;
   const followerCopies = Math.max(0, totalCopies - 1);
-  const recordCommitted = leaderAppended && totalCopies === currentIsr;
+  const recordCommitted = leaderAppended
+    && totalCopies === currentIsr
+    && currentIsr >= config.minInSyncReplicas;
 
   let producerResult: DeliveryResult["producerResult"];
   let errorCode: string | null = null;
@@ -678,13 +697,13 @@ export function evaluateDelivery(
     errorCode = "ConfigException";
   } else if (config.acks === "0") {
     producerResult = "unconfirmed";
-  } else if (requestLostWithoutRetry) {
+  } else if (requestLost && !retryCanRecoverRequest) {
     producerResult = "error";
     errorCode = "TimeoutException";
   } else if (!leaderOnline) {
     producerResult = "error";
     errorCode = "LeaderNotAvailable";
-  } else if (insufficientIsr) {
+  } else if (insufficientIsrForAll) {
     producerResult = "error";
     errorCode = "NotEnoughReplicas";
   } else if (ackLostAfterWrite && config.retries === 0) {
@@ -709,18 +728,21 @@ export function evaluateDelivery(
     producerResult,
     errorCode,
     attempts: !configValid ? 0
-      : effectiveFault !== "none" && baseLeaderAppended
-        ? Math.min(2, config.retries + 1)
-        : producerResult === "error" ? config.retries + 1 : 1,
+      : config.acks === "0" ? 1
+        : effectiveFault !== "none" && brokerCanAppend
+          ? Math.min(2, config.retries + 1)
+          : producerResult === "error" ? config.retries + 1 : 1,
     survivesLeaderFailure: totalCopies >= 2,
     preferredLeaderBroker: partitionState.preferredLeaderBroker,
     leaderElected: partitionState.leaderElected,
     laggingReplicaBrokers: partitionState.laggingReplicaBrokers,
-    faultApplied: baseLeaderAppended ? effectiveFault : "none",
+    faultApplied: configValid && (effectiveFault === "request-lost" || brokerCanAppend)
+      ? effectiveFault
+      : "none",
     recordsWritten,
     duplicateWritten,
     duplicateSuppressed,
-    ambiguousResult: ackLostAfterWrite && config.retries === 0,
+    ambiguousResult: config.acks === "0" || (ackLostAfterWrite && config.retries === 0),
   };
 }
 
@@ -785,7 +807,8 @@ export function lifecycleForEvent(event: EventRecord | null) {
 }
 
 function reached(event: EventRecord, stepId: LifecycleKey) {
-  return event.stage >= event.stepOrder.indexOf(stepId);
+  const index = event.stepOrder.indexOf(stepId);
+  return index >= 0 && event.stage >= index;
 }
 
 export function isLogVisible(event: EventRecord) {

@@ -1,30 +1,38 @@
-# Kafka Path 0.7.1 — крупный UI Consumer Group Lab
+# Kafka Path 0.7.2 — correctness release
 
 Интерактивная лаборатория Kafka на React, TypeScript и Vinext.
 
-Версия 0.7.1 делает Consumer Group Lab заметно крупнее и удобнее для чтения без масштабирования браузера. Добавлен полноэкранный режим, увеличены шрифты, элементы управления, значения offsets и lag, карточки Consumer и журнал событий. Функциональность версии 0.7.0 сохранена без изменений.
+Версия 0.7.2 исправляет расхождения, найденные во время полного correctness-review перед демонстрацией ментору. Новых верхнеуровневых режимов нет; крупный UI и полноэкранный режим 0.7.1 сохранены.
 
-UI-изменения 0.7.1:
+Исправления 0.7.2:
 
-- полноэкранный режим лаборатории с выходом по `Escape`;
-- шрифты и ключевые значения увеличены примерно на 30–40%;
-- кнопки и поля получили более крупные области нажатия;
-- Topic, карточки Consumer и Offset Matrix используют больше полезной ширины;
-- журнал rebalance и QA-подсказки читаются без увеличения страницы;
-- адаптивная компоновка раньше переходит в вертикальный режим на узких экранах.
+- основной Producer и Producer внутри Consumer Lab используют единый Topic и один LEO по каждой partition;
+- отдельно моделируются Leader LEO и consumer-visible High Watermark;
+- `poll()` двигает fetch position до завершения business processing;
+- добавлен отдельный processed offset;
+- auto commit выполняется периодически и может опередить processing;
+- manual commit сохраняет processed offset;
+- commit во время rebalance отклоняется как `RebalanceInProgressException`;
+- `Crash` сначала прекращает heartbeat и poll(), а исключение происходит только после `session.timeout.ms`;
+- остановка Broker делает данные `UNAVAILABLE / OFFLINE COPY`, но не `LOST`;
+- `request lost` при `acks=0` больше не превращается в успешную запись;
+- при `acks=1` и недостаточном `min.insync.replicas` Producer может получить ACK, но record остаётся ниже High Watermark;
+- preview и фактическая отправка keyless record используют один partitioner cursor;
+- явно указаны `group.protocol=classic` и границы учебной модели;
+- добавлены поведенческие тесты вычислений, таймеров, commit и rebalance.
 
-Consumer Group Lab по-прежнему встроена внутрь свободной песочницы, не создавая отдельный верхнеуровневый режим. Topic, partitions и записи основной end-to-end цепочки связаны с лабораторией Consumer.
+Consumer Group Lab остаётся встроенной внутрь свободной песочницы. Records, созданные кнопкой лаборатории, получают реальные offsets общего Topic и отображаются в основной partition log.
 
 В Consumer Group Lab доступны:
 
 - до четырёх Consumer с одним `group.id`;
 - состояния группы `EMPTY`, `REBALANCING` и `STABLE`;
 - стратегии распределения `Range` и `Round Robin`;
-- подключение, корректная остановка, crash и восстановление Consumer;
+- подключение, корректная остановка, crash, timeout-исключение и восстановление Consumer;
 - медленная обработка, остановка `poll()` и потеря heartbeat;
 - сжатые учебные таймеры `session.timeout.ms` и `max.poll.interval.ms`;
-- `LEO`, текущая `position`, `committed offset`, uncommitted records и lag отдельно по P0–P2;
-- автоматический и ручной commit;
+- `LEO`, `High Watermark`, `fetch position`, `processed offset`, `committed offset` и lag отдельно по P0–P2;
+- периодический auto commit и ручной commit processed offsets;
 - поток новых records и журнал причин каждого rebalance;
 - QA-фокус с проверками назначения, восстановления и повторной обработки.
 
@@ -155,7 +163,7 @@ Workflow уже находится в `.github/workflows/deploy-pages.yml`.
 
 ```bash
 git add -A
-git commit -m "Release 0.7.1 consumer lab UI"
+git commit -m "Release 0.7.2 correctness fixes"
 git push origin main
 ```
 
@@ -165,7 +173,8 @@ git push origin main
 ## Основные файлы
 
 - `app/kafka-path-simulator.tsx` — интерфейс и интерактивная логика;
-- `app/consumer-group-lab.tsx` — модель и интерфейс Consumer Group Lab;
+- `app/consumer-group-lab.tsx` — интерфейс Consumer Group Lab;
+- `app/consumer-group-model.ts` — reducer, offsets, таймеры и rebalance;
 - `app/contextual-help.tsx` — добровольная справка и подсветка интерфейса;
 - `app/topology-constructor.tsx` — холст, topology validation и запуск event;
 - `app/simulator-model.ts` — модель Kafka, состояния и вычисления;
