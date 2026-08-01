@@ -100,7 +100,7 @@ function GlossaryDialog({
   onClose: () => void;
 }) {
   return <div className="drawer-backdrop" onMouseDown={onClose}><section className="glossary-modal" role="dialog" aria-modal="true" aria-labelledby="glossary-title" onMouseDown={(event) => event.stopPropagation()}>
-    <div className="drawer-header"><div><span>Словарь Kafka Path · 0.7.2</span><h2 id="glossary-title">Термины Kafka</h2></div><button className="icon-button" onClick={onClose} aria-label="Закрыть словарь"><X size={24} /></button></div>
+    <div className="drawer-header"><div><span>Словарь Kafka Path · 0.7.3</span><h2 id="glossary-title">Термины Kafka</h2></div><button className="icon-button" onClick={onClose} aria-label="Закрыть словарь"><X size={24} /></button></div>
     <p className="drawer-intro">Короткая суть видна сразу. Откройте карточку, чтобы разобрать механику, пример в лаборатории и то, что важно проверить тестировщику.</p>
 
     <div className="glossary-toolbar">
@@ -1101,7 +1101,7 @@ export default function Home() {
       <header className="topbar">
         <a className="brand" href="#" aria-label="Kafka Path — главная">
           <span className="brand-mark"><Network size={19} /></span>
-          <span>Kafka Path</span><span className="version">version 0.7.2</span>
+          <span>Kafka Path</span><span className="version">version 0.7.3</span>
         </a>
         <div className="header-actions">
           <span className={`mode-pill ${isGuided ? "" : "sandbox"}`}>
@@ -1755,6 +1755,40 @@ export default function Home() {
               </div>
             </div>
 
+            <section className="topic-broker-guide" aria-label="Связь Topic, partitions и Brokers">
+              <div className="topic-broker-guide-copy">
+                <span>КАК ЧИТАТЬ СХЕМУ</span>
+                <strong>Topic — логическая структура, Brokers — физическое хранение</strong>
+                <small>Каждая partition из Topic хранится на Brokers как одна или несколько replicas. Одинаковый цвет означает одну и ту же partition.</small>
+              </div>
+              <div className="partition-placement-map" aria-label={`Физическое размещение replicas при RF=${deliveryConfig.replicationFactor}`}>
+                {partitionStates.map((state) => (
+                  <button
+                    type="button"
+                    key={state.partition}
+                    className={`partition-placement-row partition-${state.partition}`}
+                    onClick={() => setSelectedPartition(state.partition)}
+                    aria-label={`P${state.partition}: ${state.assignedReplicas.map((broker) => `Broker ${broker} ${broker === state.leaderBroker ? "Leader" : "Follower"}`).join(", ")}`}
+                  >
+                    <span className="placement-partition"><b>P{state.partition}</b><small>в Topic</small></span>
+                    <ArrowRight size={15} aria-hidden="true" />
+                    <span className="placement-replicas">
+                      {state.assignedReplicas.map((broker) => (
+                        <i key={broker} className={broker === state.leaderBroker ? "leader" : "follower"}>
+                          B{broker} <em>{broker === state.leaderBroker ? "Leader" : "Follower"}</em>
+                        </i>
+                      ))}
+                    </span>
+                  </button>
+                ))}
+              </div>
+              <div className="topic-broker-guide-summary">
+                <span><Layers3 size={15} /> 1 Topic · {PARTITION_COUNT} partitions</span>
+                <ArrowRight size={15} aria-hidden="true" />
+                <span><Server size={15} /> RF={deliveryConfig.replicationFactor} · {partitionStates.reduce((total, state) => total + state.assignedReplicas.length, 0)} replicas на Brokers</span>
+              </div>
+            </section>
+
             <div className="chain-viewport" ref={chainViewportRef}>
             <div className="cluster-map extended-map" ref={chainMapRef}>
               <svg className="connectors" viewBox="0 0 1000 520" preserveAspectRatio="none" aria-hidden="true">
@@ -1770,8 +1804,8 @@ export default function Home() {
                 <path className={ackReached ? `route ack active ${activeEvent?.result.producerResult === "error" ? "failed" : ""}` : "route ack"} d={`M475 ${leaderY * 5.2} C405 55 170 55 55 218`} markerEnd="url(#arrow)" />
               </svg>
               <span className="map-label producer-label">PRODUCER</span>
-              <span className="map-label topic-label">TOPIC / PARTITIONS</span>
-              <span className="map-label brokers-label">BROKERS / REPLICAS</span>
+              <span className="map-label topic-label">ЛОГИЧЕСКИЙ ВИД · TOPIC</span>
+              <span className="map-label brokers-label">ФИЗИЧЕСКИЙ ВИД · BROKERS</span>
               <span className="map-label consumer-label">CONSUMER PIPELINE</span>
               <span className="map-label side-effect-label">SIDE EFFECT + COMMIT</span>
               {activeStep?.id === "networkTimeout" && (
@@ -1799,7 +1833,7 @@ export default function Home() {
                           : []),
                       ]),
                     ].sort((left, right) => left.offset - right.offset);
-                    return <div key={p} className={`partition-log ${activeEvent?.partition === p && activeEvent.stage >= 1 ? "selected" : ""}`}>
+                    return <div key={p} className={`partition-log partition-${p} ${activeEvent?.partition === p && activeEvent.stage >= 1 ? "selected" : ""}`}>
                       <button className="partition-name" onClick={() => setSelectedPartition(p)} aria-label={`Открыть детали partition P${p}`}>
                         <span><strong>P{p}</strong><small>LEO {consumerExternalLeo[p]} · HW {consumerExternalHighWatermark[p]}</small></span>
                         <ChevronRight size={14} />
@@ -1853,7 +1887,8 @@ export default function Home() {
                         && isFollowerReplicated(activeEvent);
                       return <span
                         key={`${replica.partition}-${replica.role}`}
-                        className={`${match ? `highlight role-${replica.role.toLowerCase()}` : ""} ${replica.status}`}
+                        className={`partition-${replica.partition} ${match ? `highlight role-${replica.role.toLowerCase()}` : ""} ${replica.status}`}
+                        title={`P${replica.partition}: ${replica.role === "L" ? "Leader" : "Follower"} replica на Broker ${broker}`}
                       >
                         P{replica.partition} {replica.role}
                         {replica.status === "lagging" ? " ↻" : replicated && <Check size={9} />}

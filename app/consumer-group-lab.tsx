@@ -109,7 +109,7 @@ export default function ConsumerGroupLab({
     return <section id="consumer-group-lab" className="consumer-lab-collapsed" aria-label="Consumer Group Lab">
       <div className="consumer-lab-launch-icon"><Users size={23} /></div>
       <div className="consumer-lab-launch-copy">
-        <span>ВСТРОЕНА В ОСНОВНУЮ ЦЕПОЧКУ · 0.7.2</span>
+        <span>ВСТРОЕНА В ОСНОВНУЮ ЦЕПОЧКУ · 0.7.3</span>
         <h2>Consumer Group Lab</h2>
         <p>Откройте группу, чтобы управлять Consumer, rebalance, poll(), processing, heartbeat, offsets и lag.</p>
       </div>
@@ -127,7 +127,7 @@ export default function ConsumerGroupLab({
   return <section id="consumer-group-lab" className={`consumer-group-lab ${fullscreen ? "is-fullscreen" : ""}`} aria-labelledby="consumer-lab-title">
     <header className="consumer-lab-header">
       <div>
-        <span><Users size={18} /> CONSUMER GROUP LAB · 0.7.2</span>
+        <span><Users size={18} /> CONSUMER GROUP LAB · 0.7.3</span>
         <h2 id="consumer-lab-title">От poll() до business processing и commit</h2>
         <p>Topic действительно общий с песочницей. LEO показывает конец Leader log, HW — границу видимости Consumer, fetch position двигается при poll(), processed — после handler, committed — после сохранения offset.</p>
       </div>

@@ -46,7 +46,7 @@ test("renders the sandbox, guided-scenario, and constructor entry points", async
   const html = await response.text();
 
   assert.equal(response.status, 200);
-  assert.match(html, /version 0\.7\.2/);
+  assert.match(html, /version 0\.7\.3/);
   assert.match(html, /Свободная песочница/);
   assert.match(html, /Учебные сценарии/);
   assert.match(html, /Конструктор/);
@@ -57,6 +57,25 @@ test("renders the sandbox, guided-scenario, and constructor entry points", async
   assert.match(html, /Cluster Resilience/);
   assert.match(html, /Consumer Group Lab/);
   assert.match(html, /Подсказка/);
+});
+
+test("explains logical Topic and physical Broker placement", async () => {
+  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
+  workerUrl.searchParams.set("placement-guide", `${process.pid}-${Date.now()}`);
+  const { default: worker } = await import(workerUrl.href);
+
+  const response = await worker.fetch(
+    new Request("http://localhost/", { headers: { accept: "text/html" } }),
+    { ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) } },
+    { waitUntil() {}, passThroughOnException() {} },
+  );
+  const html = await response.text();
+
+  assert.equal(response.status, 200);
+  assert.match(html, /Topic — логическая структура, Brokers — физическое хранение/);
+  assert.match(html, /Одинаковый цвет означает одну и ту же partition/);
+  assert.match(html, /ЛОГИЧЕСКИЙ ВИД · TOPIC/);
+  assert.match(html, /ФИЗИЧЕСКИЙ ВИД · BROKERS/);
 });
 
 test("includes topology construction, validation, event routing, and txt persistence", async () => {

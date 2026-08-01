@@ -8925,3 +8925,197 @@ button.record-row:hover,
   .consumer-lab-controls,
   .consumer-model-boundaries ul { grid-template-columns: 1fr; }
 }
+
+/* Kafka Path 0.7.3 — make logical Topic and physical replica placement explicit. */
+.topic-broker-guide {
+  margin: 0 20px 14px;
+  padding: 15px 16px;
+  display: grid;
+  grid-template-columns: minmax(250px, .8fr) minmax(560px, 1.6fr);
+  grid-template-areas:
+    "copy placement"
+    "summary summary";
+  gap: 13px 20px;
+  color: #4a5165;
+  background: linear-gradient(135deg, #fbfaff, #f6fbfa);
+  border: 1px solid #dedced;
+  border-radius: 14px;
+}
+
+.topic-broker-guide-copy { grid-area: copy; align-self: center; }
+.topic-broker-guide-copy > span,
+.topic-broker-guide-copy > strong,
+.topic-broker-guide-copy > small { display: block; }
+.topic-broker-guide-copy > span {
+  margin-bottom: 5px;
+  color: #7564ce;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .11em;
+}
+.topic-broker-guide-copy > strong {
+  color: #30364a;
+  font-size: 14px;
+  line-height: 1.35;
+}
+.topic-broker-guide-copy > small {
+  margin-top: 5px;
+  color: #687086;
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+
+.partition-placement-map {
+  grid-area: placement;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.partition-placement-row,
+.partition-log,
+.replica-list span {
+  --partition-accent: #a57555;
+  --partition-border: #e4bea7;
+  --partition-surface: #fff1e9;
+  --partition-ink: #78482f;
+}
+.partition-placement-row.partition-1,
+.partition-log.partition-1,
+.replica-list span.partition-1 {
+  --partition-accent: #408aa8;
+  --partition-border: #afd7e5;
+  --partition-surface: #eaf7fb;
+  --partition-ink: #28667f;
+}
+.partition-placement-row.partition-2,
+.partition-log.partition-2,
+.replica-list span.partition-2 {
+  --partition-accent: #7761b3;
+  --partition-border: #cfc2ed;
+  --partition-surface: #f2edff;
+  --partition-ink: #59438f;
+}
+
+.partition-placement-row {
+  min-width: 0;
+  padding: 9px 10px;
+  display: grid;
+  grid-template-columns: auto 15px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  color: var(--partition-ink);
+  background: var(--partition-surface);
+  border: 1px solid var(--partition-border);
+  border-radius: 10px;
+  text-align: left;
+  cursor: pointer;
+  transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+}
+.partition-placement-row:hover {
+  transform: translateY(-1px);
+  border-color: var(--partition-accent);
+  box-shadow: 0 7px 16px color-mix(in srgb, var(--partition-accent) 15%, transparent);
+}
+.partition-placement-row:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--partition-accent) 28%, transparent);
+  outline-offset: 2px;
+}
+.partition-placement-row > svg { color: var(--partition-accent); }
+.placement-partition b,
+.placement-partition small { display: block; }
+.placement-partition b { font-size: 14px; }
+.placement-partition small { margin-top: 1px; font-size: 8px; font-weight: 700; opacity: .75; }
+.placement-replicas { min-width: 0; display: grid; gap: 4px; }
+.placement-replicas i {
+  min-width: 0;
+  padding: 3px 5px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  color: var(--partition-ink);
+  background: rgba(255, 255, 255, .7);
+  border: 1px solid var(--partition-accent);
+  border-radius: 5px;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.placement-replicas i.follower { border-style: dashed; }
+.placement-replicas em { font-size: 7px; font-style: normal; font-weight: 750; opacity: .78; }
+
+.topic-broker-guide-summary {
+  grid-area: summary;
+  padding-top: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  border-top: 1px solid #e4e3ee;
+  color: #596177;
+  font-size: 10px;
+  font-weight: 700;
+}
+.topic-broker-guide-summary span { display: inline-flex; align-items: center; gap: 6px; }
+.topic-broker-guide-summary svg { color: #7564ce; flex: 0 0 auto; }
+
+.extended-map .topic-label,
+.extended-map .brokers-label {
+  padding: 4px 8px;
+  color: #545b70;
+  background: rgba(255, 255, 255, .9);
+  border: 1px solid #e1e2e9;
+  border-radius: 999px;
+  font-size: 9px;
+  letter-spacing: .06em;
+  box-shadow: 0 4px 12px rgba(44, 49, 68, .06);
+}
+
+.partition-log {
+  border-left: 4px solid var(--partition-accent);
+}
+.partition-log .partition-name strong { color: var(--partition-ink); }
+.partition-log.selected {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--partition-accent) 22%, transparent);
+}
+
+.replica-list span.partition-0,
+.replica-list span.partition-1,
+.replica-list span.partition-2 {
+  color: var(--partition-ink);
+  background: var(--partition-surface);
+  border-color: var(--partition-border);
+}
+.replica-list span.highlight.role-l {
+  color: var(--partition-ink);
+  background: var(--partition-surface);
+  border-color: var(--partition-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--partition-accent) 22%, transparent);
+}
+.replica-list span.highlight.role-f {
+  color: var(--partition-ink);
+  background: var(--partition-surface);
+  border-color: var(--partition-accent);
+  box-shadow: inset 0 0 0 1px var(--partition-accent);
+}
+
+@media (max-width: 1120px) {
+  .topic-broker-guide {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "copy"
+      "placement"
+      "summary";
+  }
+}
+
+@media (max-width: 720px) {
+  .topic-broker-guide { margin-inline: 12px; padding: 13px; }
+  .partition-placement-map { grid-template-columns: 1fr; }
+  .partition-placement-row { grid-template-columns: 52px 18px minmax(0, 1fr); }
+  .placement-replicas { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .topic-broker-guide-summary { align-items: flex-start; flex-direction: column; gap: 7px; }
+  .topic-broker-guide-summary > svg { display: none; }
+}
