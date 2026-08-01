@@ -1,17 +1,30 @@
-# Kafka Path 0.6.3 — Contextual Help + Scenarios + Sandbox + Topology Constructor
+# Kafka Path 0.7.0 — Consumer Group Lab
 
 Интерактивная лаборатория Kafka на React, TypeScript и Vinext.
 
-Версия 0.6.3 объединяет три режима в одной визуальной системе, сохраняет hotfix маркера event и расширенный учебный словарь Kafka, а также добавляет добровольную контекстную справку:
+Версия 0.7.0 добавляет полноценную Consumer Group Lab внутрь свободной песочницы, не создавая отдельный верхнеуровневый режим. Topic, partitions и записи основной end-to-end цепочки связаны с лабораторией Consumer.
 
-- отдельная кнопка **«Подсказка»** во всех трёх режимах;
-- режим **«Показать, где можно нажать»** с подсветкой кнопок, полей и интерактивных зон;
-- ручное объяснение текущего режима с фокусом на соответствующих элементах интерфейса;
-- отдельные тексты для песочницы, учебных сценариев и конструктора;
-- закрытие справки клавишей `Escape`;
-- без автозапуска, отметок о прохождении, прогресса и механик удержания.
+В Consumer Group Lab доступны:
 
-Словарь остаётся заметной частью интерфейса:
+- до четырёх Consumer с одним `group.id`;
+- состояния группы `EMPTY`, `REBALANCING` и `STABLE`;
+- стратегии распределения `Range` и `Round Robin`;
+- подключение, корректная остановка, crash и восстановление Consumer;
+- медленная обработка, остановка `poll()` и потеря heartbeat;
+- сжатые учебные таймеры `session.timeout.ms` и `max.poll.interval.ms`;
+- `LEO`, текущая `position`, `committed offset`, uncommitted records и lag отдельно по P0–P2;
+- автоматический и ручной commit;
+- поток новых records и журнал причин каждого rebalance;
+- QA-фокус с проверками назначения, восстановления и повторной обработки.
+
+Справка 0.6.3 также сохранена и расширена для новой лаборатории:
+
+- кнопка **«Подсказка»** во всех трёх режимах;
+- подсветка кликабельных элементов;
+- добровольное пошаговое объяснение текущего режима;
+- без автозапуска, прогресса прохождения, напоминаний и сохранения просмотра.
+
+Расширенный словарь теперь содержит 46 терминов:
 
 - поиск по терминам и русским/английским синонимам;
 - фильтрация по пяти категориям;
@@ -26,7 +39,7 @@
 - **Конструктор** — собственная перетаскиваемая топология из Producer, Topic,
   Broker, Consumer и Database с ручным размещением partition replicas.
 
-Оба режима используют одну end-to-end цепочку:
+Песочница и учебные сценарии используют одну end-to-end цепочку:
 
 ```text
 Producer → Topic / Partition → Leader / Followers → ACK
@@ -50,7 +63,7 @@ Producer → Topic / Partition → Leader / Followers → ACK
 Preset сценария можно перенести в песочницу кнопкой
 **«Изменить в песочнице»** и продолжить эксперимент вручную.
 
-В песочнице три лаборатории открываются сразу и работают независимо от
+В песочнице четыре лаборатории работают независимо от
 сценариев:
 
 - **Sandbox Producer Settings** — `acks`, `replication.factor`,
@@ -59,6 +72,8 @@ Preset сценария можно перенести в песочницу кн
   отправка, duplicate и deduplication;
 - **Cluster Resilience Lab** — управление Broker, Leader, ISR, lagging replica
   и failover.
+- **Consumer Group Lab** — assignments, rebalance, poll, heartbeat, offsets,
+  commit и lag в общей цепочке после Topic.
 
 Файл не загружается на сервер. Текстовые данные до 256 KB читаются локально,
 а для крупных или бинарных файлов симулятор формирует metadata record.
@@ -129,7 +144,7 @@ Workflow уже находится в `.github/workflows/deploy-pages.yml`.
 
 ```bash
 git add -A
-git commit -m "Release 0.6.3 contextual help"
+git commit -m "Release 0.7.0 consumer group lab"
 git push origin main
 ```
 
@@ -139,7 +154,8 @@ git push origin main
 ## Основные файлы
 
 - `app/kafka-path-simulator.tsx` — интерфейс и интерактивная логика;
-- `app/help-system.tsx` — контекстная справка, подсветка и объяснение режимов;
+- `app/consumer-group-lab.tsx` — модель и интерфейс Consumer Group Lab;
+- `app/contextual-help.tsx` — добровольная справка и подсветка интерфейса;
 - `app/topology-constructor.tsx` — холст, topology validation и запуск event;
 - `app/simulator-model.ts` — модель Kafka, состояния и вычисления;
 - `app/globals.css` — визуальная система и responsive layout;

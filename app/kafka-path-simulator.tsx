@@ -2,8 +2,8 @@
 
 import {
   Activity, AlertTriangle, ArrowRight, BookOpen, Boxes, Braces, Check,
-  ChevronRight, CircleHelp, CirclePause, CirclePlay, CircleX, Database, Gauge,
-  FileJson2, FileUp, GitBranch, Info, Layers3, Maximize2, Minimize2, Network,
+  ChevronRight, CirclePause, CirclePlay, CircleX, Database, Gauge,
+  FileJson2, FileUp, GitBranch, HelpCircle, Info, Layers3, Maximize2, Minimize2, Network,
   Power, Radio, RefreshCw, RotateCcw, Search, Send, Server, Settings2, ShieldCheck,
   SkipBack, SkipForward, Sparkles, TimerReset, Users, WifiOff, Workflow, X, Zap,
 } from "lucide-react";
@@ -19,7 +19,8 @@ import {
   stepDisposition, stepOrderForConfig, TOPIC_NAME,
 } from "./simulator-model";
 import { GLOSSARY, GLOSSARY_CATEGORIES, GlossaryCategory } from "./glossary-data";
-import HelpSystem from "./help-system";
+import ConsumerGroupLab from "./consumer-group-lab";
+import ContextualHelp from "./contextual-help";
 import TopologyConstructor from "./topology-constructor";
 
 type LearningMode = "guided" | "sandbox" | "constructor";
@@ -99,7 +100,7 @@ function GlossaryDialog({
   onClose: () => void;
 }) {
   return <div className="drawer-backdrop" onMouseDown={onClose}><section className="glossary-modal" role="dialog" aria-modal="true" aria-labelledby="glossary-title" onMouseDown={(event) => event.stopPropagation()}>
-    <div className="drawer-header"><div><span>Словарь Kafka Path · 0.6.3</span><h2 id="glossary-title">Термины Kafka</h2></div><button className="icon-button" onClick={onClose} aria-label="Закрыть словарь"><X size={24} /></button></div>
+    <div className="drawer-header"><div><span>Словарь Kafka Path · 0.7.0</span><h2 id="glossary-title">Термины Kafka</h2></div><button className="icon-button" onClick={onClose} aria-label="Закрыть словарь"><X size={24} /></button></div>
     <p className="drawer-intro">Короткая суть видна сразу. Откройте карточку, чтобы разобрать механику, пример в лаборатории и то, что важно проверить тестировщику.</p>
 
     <div className="glossary-toolbar">
@@ -318,6 +319,7 @@ export default function Home() {
   const [speed, setSpeed] = useState(1);
   const [showGlossary, setShowGlossary] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [showConsumerLab, setShowConsumerLab] = useState(false);
   const [glossaryQuery, setGlossaryQuery] = useState("");
   const [glossaryCategory, setGlossaryCategory] = useState<GlossaryCategory | "Все">("Все");
   const [showSettings, setShowSettings] = useState(false);
@@ -438,6 +440,13 @@ export default function Home() {
   const eventsByPartition = useMemo(() =>
     Array.from({ length: PARTITION_COUNT }, (_, partition) =>
       events.filter((event) => event.partition === partition && isLogVisible(event))),
+  [events]);
+  const consumerExternalOffsets = useMemo(() =>
+    Array.from({ length: PARTITION_COUNT }, (_, partition) => BASE_OFFSETS[partition] + 1
+      + events
+        .filter((event) => event.partition === partition && isLogVisible(event))
+        .reduce((total, event) => total + 1
+          + (event.result.duplicateWritten && isRetryResolved(event) ? 1 : 0), 0)),
   [events]);
   const writtenRecordCount = (partition: number) =>
     events
@@ -573,6 +582,7 @@ export default function Home() {
         if (selectedPartition !== null) setSelectedPartition(null);
         else if (selectedBroker !== null) setSelectedBroker(null);
         else if (showGlossary) setShowGlossary(false);
+        else if (showHelp) setShowHelp(false);
         else if (showClusterFocus) setShowClusterFocus(false);
       }
     };
@@ -587,6 +597,7 @@ export default function Home() {
     selectedPartition,
     showClusterFocus,
     showGlossary,
+    showHelp,
   ]);
 
   useEffect(() => {
@@ -775,7 +786,8 @@ export default function Home() {
   };
 
   const openSandboxLab = (sectionId: string) => {
-    setShowAdvancedConfig(true);
+    if (sectionId === "consumer-group-lab") setShowConsumerLab(true);
+    else setShowAdvancedConfig(true);
     window.setTimeout(() => {
       document.getElementById(sectionId)?.scrollIntoView({
         behavior: "smooth",
@@ -992,11 +1004,11 @@ export default function Home() {
     return <>
       <TopologyConstructor
         onModeChange={chooseLearningMode}
-        onOpenGlossary={() => { setShowHelp(false); setShowGlossary(true); }}
-        onOpenHelp={() => { setShowGlossary(false); setShowHelp(true); }}
+        onOpenGlossary={() => setShowGlossary(true)}
+        onOpenHelp={() => setShowHelp(true)}
       />
       {glossaryDialog}
-      {showHelp && <HelpSystem key="constructor-help" open mode="constructor" onClose={() => setShowHelp(false)} />}
+      {showHelp && <ContextualHelp mode="constructor" open onClose={() => setShowHelp(false)} />}
     </>;
   }
 
@@ -1005,20 +1017,19 @@ export default function Home() {
       <header className="topbar">
         <a className="brand" href="#" aria-label="Kafka Path — главная">
           <span className="brand-mark"><Network size={19} /></span>
-          <span>Kafka Path</span><span className="version">version 0.6.3</span>
+          <span>Kafka Path</span><span className="version">version 0.7.0</span>
         </a>
         <div className="header-actions">
           <span className={`mode-pill ${isGuided ? "" : "sandbox"}`}>
             {isGuided ? <Sparkles size={14} /> : <Settings2 size={14} />}
             {isGuided ? "Учебный сценарий" : "Песочница"}
           </span>
-          <button className="help-cta" onClick={() => { setShowGlossary(false); setShowHelp(true); }} aria-label="Открыть подсказку по интерфейсу" aria-haspopup="dialog" aria-expanded={showHelp}>
-            <span className="help-cta-icon"><CircleHelp size={19} /></span>
-            <span><strong>Подсказка</strong><small>Что здесь нажимать</small></span>
+          <button className="help-cta" onClick={() => setShowHelp(true)} aria-haspopup="dialog" aria-expanded={showHelp}>
+            <HelpCircle size={18} /><span><strong>Подсказка</strong><small>Что здесь доступно</small></span>
           </button>
-          <button className="glossary-cta" data-tour="glossary-button" data-help="Словарь: определения Kafka, примеры и QA-проверки" onClick={() => { setShowHelp(false); setShowGlossary(true); }} aria-haspopup="dialog" aria-expanded={showGlossary}>
+          <button className="glossary-cta" onClick={() => setShowGlossary(true)} aria-haspopup="dialog" aria-expanded={showGlossary}>
             <span className="glossary-cta-icon"><BookOpen size={19} /></span>
-            <span className="glossary-cta-copy"><strong>Словарь Kafka</strong><small>{GLOSSARY.length} термин с примерами</small></span>
+            <span className="glossary-cta-copy"><strong>Словарь Kafka</strong><small>{GLOSSARY.length} терминов с примерами</small></span>
             <span className="glossary-cta-badge" aria-hidden="true">{GLOSSARY.length}</span>
           </button>
         </div>
@@ -1041,7 +1052,7 @@ export default function Home() {
           </div>
         </div>
 
-        <section className="learning-mode-switch three-modes" data-tour="learning-modes" data-help="Переключатель режимов: песочница, сценарии и конструктор" aria-label="Режим работы симулятора">
+        <section className="learning-mode-switch three-modes" aria-label="Режим работы симулятора" data-help="Выберите песочницу, сценарии или конструктор">
           <button
             className={!isGuided ? "active sandbox" : "sandbox"}
             aria-pressed={!isGuided}
@@ -1072,7 +1083,7 @@ export default function Home() {
             <strong>{isGuided ? "Preset сценария применён автоматически" : "Вы управляете входными данными и конфигурацией"}</strong>
             <span>{isGuided
               ? "Настройки защищены от случайных изменений; при желании перенесите preset в песочницу."
-              : "Ниже сразу доступны Producer Settings, Network & Retry Lab и Cluster Resilience Lab."}</span>
+              : "Ниже доступны Producer Settings, Network & Retry, Cluster Resilience и встроенная Consumer Group Lab."}</span>
           </div>
         </section>
 
@@ -1080,7 +1091,7 @@ export default function Home() {
           <div className="scenario-labels">
             <span>Основы</span><span>ACK и доставка</span><span>Отказоустойчивость</span><span>Retries</span>
           </div>
-          <nav className="scenario-switcher" data-tour="scenario-picker" data-help="Выбор готового учебного сценария Kafka" aria-label="Учебные сценарии">
+          <nav className="scenario-switcher" aria-label="Учебные сценарии" data-help="Выберите готовую учебную ситуацию">
             {SCENARIOS.map((item, index) => (
               <button
                 key={item.id}
@@ -1094,7 +1105,7 @@ export default function Home() {
             ))}
           </nav>
 
-          <section className="scenario-brief">
+          <section className="scenario-brief" data-help="Цель и ожидаемый эффект сценария">
             <div className="brief-icon"><GitBranch size={18} /></div>
             <div><span>{scenario.badge}</span><strong>{scenario.lesson}</strong></div>
             {scenarioId === "same-key" && <div className="scenario-progress">
@@ -1104,7 +1115,7 @@ export default function Home() {
             </div>}
           </section>
 
-          <section className="composer-card guided-composer" data-tour="guided-input" data-help="Данные preset и кнопка запуска учебного event" aria-label="Запуск учебного события">
+          <section className="composer-card guided-composer" aria-label="Запуск учебного события" data-help="Запустите event с параметрами preset">
             <div className="field-group"><label htmlFor="guided-event-key">Event key</label>
               <input id="guided-event-key" value={eventKey} onChange={(event) => setEventKey(event.target.value)} readOnly={scenarioId === "same-key"} />
             </div>
@@ -1125,13 +1136,13 @@ export default function Home() {
             </button>
           </section>
         </> : <>
-        <section className="sandbox-system" aria-label="Состояние рабочей системы">
+        <section className="sandbox-system" aria-label="Состояние рабочей системы" data-help="Состояние полного пути данных">
           <div className="system-live"><i /><span><strong>Система работает</strong><small>Producer, Kafka cluster, Consumer и service_db доступны</small></span></div>
           <div className="system-path"><span>INPUT</span><ArrowRight size={14} /><b>{topicName || TOPIC_NAME}</b><ArrowRight size={14} /><span>PROCESSING</span><ArrowRight size={14} /><span>RESULT</span></div>
           <p>Это не сценарий с заранее известным ответом. Вы задаёте входные данные и сами проверяете факты на каждом этапе.</p>
         </section>
 
-        <section className="sandbox-composer" data-tour="sandbox-input" data-help="Создание event или локального файла и запуск в систему" aria-label="Создание входных данных">
+        <section className="sandbox-composer" aria-label="Создание входных данных" data-help="Создайте event или выберите файл">
           <header>
             <div><span>NEW INPUT</span><h2>Что отправляем в систему?</h2></div>
             <div className="message-kind" role="group" aria-label="Тип сообщения">
@@ -1167,7 +1178,7 @@ export default function Home() {
         </>}
 
         {!isGuided && (
-          <nav className="sandbox-lab-index" data-tour="sandbox-labs" data-help="Быстрая навигация к настройкам, retry и отказоустойчивости" aria-label="Лаборатории песочницы">
+          <nav className="sandbox-lab-index" aria-label="Лаборатории песочницы" data-help="Быстрый переход к лабораториям системы">
             <div><span>SANDBOX LABS</span><strong>Настройки и отказы рабочей системы</strong></div>
             <button onClick={() => openSandboxLab("delivery-lab")}>
               <Settings2 size={16} /><span><strong>Producer Settings</strong><small>acks · RF · min ISR · retries</small></span>
@@ -1177,6 +1188,9 @@ export default function Home() {
             </button>
             <button onClick={() => openSandboxLab("resilience-lab")}>
               <Network size={16} /><span><strong>Cluster Resilience</strong><small>Broker · Leader · ISR · failover</small></span>
+            </button>
+            <button className="consumer-lab-link" onClick={() => openSandboxLab("consumer-group-lab")}>
+              <Users size={16} /><span><strong>Consumer Group Lab</strong><small>rebalance · offsets · lag · commit</small></span>
             </button>
           </nav>
         )}
@@ -1191,7 +1205,7 @@ export default function Home() {
 
         {showAdvancedConfig && <>
 
-        <section id="delivery-lab" className="delivery-lab" data-tour="producer-settings" data-help="Настройки Producer и условий подтверждения записи" aria-label="Настройки доставки Producer">
+        <section id="delivery-lab" className="delivery-lab" aria-label="Настройки доставки Producer">
           <header className="delivery-lab-heading">
             <div>
               <span>{isGuided ? <ShieldCheck size={16} /> : <Settings2 size={16} />}
@@ -1344,7 +1358,7 @@ export default function Home() {
           </div>
         </section>
 
-        <section id="retry-lab" className="retry-lab" data-tour="network-retry" data-help="Потеря request/ACK, retries, duplicate и idempotence" aria-label="Сетевые сбои, retries и idempotence">
+        <section id="retry-lab" className="retry-lab" aria-label="Сетевые сбои, retries и idempotence">
           <header className="retry-lab-heading">
             <div>
               <span><Radio size={16} /> NETWORK & RETRY LAB · 0.3.3</span>
@@ -1458,7 +1472,7 @@ export default function Home() {
           </footer>
         </section>
 
-        <section id="resilience-lab" className="resilience-lab" data-tour="cluster-resilience" data-help="Управление Broker, Leader, Followers и ISR" aria-label="Управление отказоустойчивостью кластера">
+        <section id="resilience-lab" className="resilience-lab" aria-label="Управление отказоустойчивостью кластера">
           <header className="resilience-heading">
             <div>
               <span><Network size={16} /> CLUSTER RESILIENCE LAB · 0.3.2</span>
@@ -1604,8 +1618,15 @@ export default function Home() {
 
         </>}
 
+        {!isGuided && <ConsumerGroupLab
+          topicName={topicName || TOPIC_NAME}
+          externalOffsets={consumerExternalOffsets}
+          expanded={showConsumerLab}
+          onExpandedChange={setShowConsumerLab}
+        />}
+
         <div className="content-grid">
-          <section className={`simulator-card ${showClusterFocus ? "focus-mode" : ""}`} data-tour="simulation-map" data-help="Интерактивная карта маршрута event и управление симуляцией">
+          <section className={`simulator-card ${showClusterFocus ? "focus-mode" : ""}`} data-help="Пошаговая end-to-end цепочка event">
             <div className="card-heading">
               <div><span>END-TO-END DATA CHAIN · 11+ ЭТАПОВ</span><h2>{topicName || TOPIC_NAME} → service_db</h2></div>
               <div className="sim-controls">
@@ -1736,10 +1757,16 @@ export default function Home() {
                   </div></div>
                 </button>;
               })}
-              <div className={`map-node consumer-node ${activeStep?.node === "consumer" ? "current mint-current" : ""}`}>
+              <button
+                type="button"
+                className={`map-node consumer-node ${activeStep?.node === "consumer" ? "current mint-current" : ""}`}
+                onClick={() => openSandboxLab("consumer-group-lab")}
+                data-help="Открыть Consumer Group Lab"
+                aria-label="Открыть Consumer Group Lab"
+              >
                 <span className="node-icon mint"><Users size={21} /></span>
-                <div><strong>sandbox-cg</strong><small>poll() · Consumer 1</small></div>
-              </div>
+                <div><strong>sandbox-cg</strong><small>{isGuided ? "poll() · Consumer 1" : "нажмите: group lab"}</small></div>
+              </button>
               <div className={`map-node decode-node pipeline-node ${activeStep?.node === "deserializer" ? "current mint-current" : ""}`}>
                 <span className="node-icon cyan"><Braces size={21} /></span>
                 <div><strong>{activeEvent?.kind === "file" ? "File Decoder" : "JSON Decoder"}</strong><small>bytes → application data</small></div>
@@ -1801,7 +1828,7 @@ export default function Home() {
             </div>
           </section>
 
-          <aside className="inspector" data-tour="event-inspector" data-help="Инспектор event: текущий шаг, доставка и lifecycle">
+          <aside className="inspector" data-help="Объяснение активного шага и фактический результат">
             <section className="inspector-card explanation-card">
               <div className="step-counter"><span>ШАГ {activeEvent ? activeEvent.stage + 1 : "—"} ИЗ {activeEvent?.stepOrder.length ?? timelineSteps.length}</span>{playing && <i><span /> в процессе</i>}</div>
               <div className="explanation-icon">{
@@ -2188,7 +2215,7 @@ export default function Home() {
       </div>}
 
       {glossaryDialog}
-      {showHelp && <HelpSystem key={`${isGuided ? "guided" : "sandbox"}-help`} open mode={isGuided ? "guided" : "sandbox"} onClose={() => setShowHelp(false)} />}
+      {showHelp && <ContextualHelp mode={isGuided ? "guided" : "sandbox"} open onClose={() => setShowHelp(false)} />}
     </main>
   );
 }

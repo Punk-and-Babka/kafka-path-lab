@@ -46,7 +46,7 @@ test("renders the sandbox, guided-scenario, and constructor entry points", async
   const html = await response.text();
 
   assert.equal(response.status, 200);
-  assert.match(html, /version 0\.6\.3/);
+  assert.match(html, /version 0\.7\.0/);
   assert.match(html, /Свободная песочница/);
   assert.match(html, /Учебные сценарии/);
   assert.match(html, /Конструктор/);
@@ -55,6 +55,8 @@ test("renders the sandbox, guided-scenario, and constructor entry points", async
   assert.match(html, /Producer Settings/);
   assert.match(html, /Network (?:&|&amp;) Retry/);
   assert.match(html, /Cluster Resilience/);
+  assert.match(html, /Consumer Group Lab/);
+  assert.match(html, /Подсказка/);
 });
 
 test("includes topology construction, validation, event routing, and txt persistence", async () => {
@@ -111,7 +113,7 @@ test("includes the expanded searchable QA-oriented glossary", async () => {
   assert.match(simulatorSource, /Поиск по словарю/);
   assert.match(simulatorSource, /className="glossary-cta"/);
   assert.match(simulatorSource, /Словарь Kafka/);
-  assert.match(simulatorSource, /термин с примерами/);
+  assert.match(simulatorSource, /терминов с примерами/);
   assert.match(simulatorSource, /onOpenGlossary/);
   assert.match(simulatorSource, /glossaryCategory/);
   assert.match(simulatorSource, /Развернуть объяснение/);
@@ -120,25 +122,42 @@ test("includes the expanded searchable QA-oriented glossary", async () => {
   assert.match(glossarySource, /Kafka гарантирует порядок records только в пределах одной partition/);
   assert.match(glossarySource, /At-least-once/);
   assert.match(glossarySource, /Log compaction/);
+  assert.match(glossarySource, /Heartbeat \/ session timeout/);
+  assert.match(glossarySource, /poll\(\) \/ max\.poll\.interval\.ms/);
 });
 
-test("includes manual contextual help without engagement tracking", async () => {
-  const [simulatorSource, constructorSource, helpSource, styles] = await Promise.all([
+test("includes the integrated Consumer Group Lab and its failure model", async () => {
+  const [simulatorSource, consumerLabSource] = await Promise.all([
     readFile(new URL("../app/kafka-path-simulator.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../app/topology-constructor.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../app/help-system.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+    readFile(new URL("../app/consumer-group-lab.tsx", import.meta.url), "utf8"),
   ]);
 
-  assert.match(simulatorSource, /className="help-cta"/);
-  assert.match(simulatorSource, /<HelpSystem/);
+  assert.match(simulatorSource, /<ConsumerGroupLab/);
+  assert.match(simulatorSource, /consumerExternalOffsets/);
+  assert.match(simulatorSource, /openSandboxLab\("consumer-group-lab"\)/);
+  assert.match(consumerLabSource, /type GroupPhase = "EMPTY" \| "REBALANCING" \| "STABLE"/);
+  assert.match(consumerLabSource, /"range" \| "round-robin"/);
+  assert.match(consumerLabSource, /sessionTimeout/);
+  assert.match(consumerLabSource, /maxPollInterval/);
+  assert.match(consumerLabSource, /position/);
+  assert.match(consumerLabSource, /committed/);
+  assert.match(consumerLabSource, /Consumer Group готова/);
+  assert.match(consumerLabSource, /Почему произошёл rebalance/);
+});
+
+test("keeps contextual help voluntary and available in every mode", async () => {
+  const [simulatorSource, constructorSource, helpSource] = await Promise.all([
+    readFile(new URL("../app/kafka-path-simulator.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/topology-constructor.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/contextual-help.tsx", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(simulatorSource, /mode=\{isGuided \? "guided" : "sandbox"\}/);
+  assert.match(simulatorSource, /mode="constructor"/);
   assert.match(constructorSource, /onOpenHelp/);
   assert.match(helpSource, /Показать, где можно нажать/);
   assert.match(helpSource, /Объяснить текущий режим/);
-  assert.match(helpSource, /help-discovery-mode/);
-  assert.match(helpSource, /data-tour/);
-  assert.match(helpSource, /QA-фокус/);
-  assert.doesNotMatch(helpSource, /localStorage|sessionStorage|help-progress|tour-progress/);
-  assert.match(styles, /\.help-tour-spotlight/);
-  assert.match(styles, /body\.help-discovery-mode/);
+  assert.match(helpSource, /Справка запускается только по вашему запросу/);
+  assert.doesNotMatch(helpSource, /localStorage/);
+  assert.doesNotMatch(helpSource, /ШАГ \{stepIndex/);
 });
