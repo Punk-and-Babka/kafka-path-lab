@@ -7,6 +7,8 @@ import {
   partitionRuntime,
   replicaRoleLabel,
   resolvePartition,
+  stepDisposition,
+  stepOrderForConfig,
 } from "../app/simulator-model.ts";
 import {
   assignmentsFor,
@@ -270,4 +272,115 @@ test("auto commit only stores offsets of assigned partitions", () => {
   assert.ok(state.committed[0] > 5);
   assert.equal(state.committed[1], 5);
   assert.ok(state.committed[2] > 5);
+});
+
+const deliveryConfig = (overrides = {}) => ({
+  acks: "all",
+  replicationFactor: 2,
+  minInSyncReplicas: 2,
+  availableBrokers: 3,
+  retries: 3,
+  idempotence: true,
+  ...overrides,
+});
+
+/** Собирает event так же, как это делает песочница при отправке. */
+const eventFor = (config, faultMode = "none", runtime = healthyRuntime, partition = 0) => ({
+  partition,
+  delivery: config,
+  faultMode,
+  stage: 0,
+  stepOrder: stepOrderForConfig(config, faultMode),
+  result: evaluateDelivery(config, partition, runtime, faultMode),
+});
+
+const orderIndex = (order, step) => order.indexOf(step);
+
+test("acks=1 acknowledges before replication, acks=all only after commit", () => {
+  const leaderOnly = stepOrderForConfig(deliveryConfig({ acks: "1", idempotence: false }));
+  const fullIsr = stepOrderForConfig(deliveryConfig());
+
+  assert.ok(orderIndex(leaderOnly, "producerAck") < orderIndex(leaderOnly, "replication"));
+  assert.ok(orderIndex(leaderOnly, "producerAck") < orderIndex(leaderOnly, "committed"));
+  assert.ok(orderIndex(fullIsr, "committed") < orderIndex(fullIsr, "producerAck"));
+});
+
+test("a lost request without retries never reaches the consumer", () => {
+  const order = stepOrderForConfig(
+    deliveryConfig({ retries: 0, idempotence: false }),
+    "request-lost",
+  );
+
+  assert.deepEqual(order, ["producerSend", "partitioning", "networkTimeout", "producerAck"]);
+  assert.equal(order.includes("leaderAppend"), false);
+  assert.equal(order.includes("consumerFetch"), false);
+});
+
+test("a lost request with retries appends only after the retry", () => {
+  const order = stepOrderForConfig(deliveryConfig(), "request-lost");
+
+  assert.ok(orderIndex(order, "networkTimeout") < orderIndex(order, "retrySend"));
+  assert.ok(orderIndex(order, "retrySend") < orderIndex(order, "leaderAppend"));
+  assert.ok(orderIndex(order, "leaderAppend") < orderIndex(order, "offsetCommit"));
+});
+
+test("a lost ACK happens after the record is already committed", () => {
+  const order = stepOrderForConfig(deliveryConfig(), "ack-lost");
+
+  assert.ok(orderIndex(order, "committed") < orderIndex(order, "networkTimeout"));
+  assert.ok(orderIndex(order, "networkTimeout") < orderIndex(order, "retryResolution"));
+  assert.ok(orderIndex(order, "retryResolution") < orderIndex(order, "producerAck"));
+});
+
+test("acks=0 ignores a lost ACK because no ACK is awaited", () => {
+  const config = deliveryConfig({ acks: "0", idempotence: false });
+
+  assert.deepEqual(
+    stepOrderForConfig(config, "ack-lost"),
+    stepOrderForConfig(config, "none"),
+  );
+  assert.equal(evaluateDelivery(config, 0, healthyRuntime, "ack-lost").faultApplied, "none");
+});
+
+test("an invalid producer config fails at send and skips every later step", () => {
+  const event = eventFor(deliveryConfig({ acks: "1" }));
+
+  assert.equal(event.result.configValid, false);
+  assert.equal(stepDisposition(event, "producerSend"), "failed");
+  assert.equal(stepDisposition(event, "leaderAppend"), "skipped");
+  assert.equal(stepDisposition(event, "offsetCommit"), "skipped");
+});
+
+test("acks=0 skips the ACK step instead of failing it", () => {
+  const event = eventFor(deliveryConfig({ acks: "0", idempotence: false }));
+
+  assert.equal(stepDisposition(event, "producerAck"), "skipped");
+  assert.equal(stepDisposition(event, "leaderAppend"), "success");
+});
+
+test("an append below the watermark succeeds but stops the consumer steps", () => {
+  const event = eventFor(
+    deliveryConfig({ acks: "1", replicationFactor: 1, minInSyncReplicas: 2, idempotence: false }),
+    "none",
+    { onlineBrokers: [1], laggingReplicas: [], leaders: [1, 2, 3] },
+  );
+
+  assert.equal(event.result.leaderAppended, true);
+  assert.equal(event.result.recordCommitted, false);
+  assert.equal(stepDisposition(event, "leaderAppend"), "success");
+  assert.equal(stepDisposition(event, "committed"), "skipped");
+  assert.equal(stepDisposition(event, "consumerFetch"), "skipped");
+  assert.equal(stepDisposition(event, "sinkWrite"), "skipped");
+});
+
+test("the dedup step only runs when a retry actually produced or suppressed a copy", () => {
+  const duplicating = eventFor(
+    deliveryConfig({ acks: "1", idempotence: false }),
+    "ack-lost",
+  );
+  const clean = eventFor(deliveryConfig());
+
+  assert.equal(duplicating.result.duplicateWritten, true);
+  assert.equal(stepDisposition(duplicating, "retryResolution"), "success");
+  assert.equal(stepDisposition(clean, "retryResolution"), "skipped");
 });
