@@ -58,6 +58,9 @@ test("renders the sandbox, guided-scenario, and constructor entry points", async
   assert.match(html, /Network (?:&|&amp;) Retry/);
   assert.match(html, /Cluster Resilience/);
   assert.match(html, /Consumer Group Lab/);
+  assert.match(html, /Consumer Errors/);
+  assert.match(html, /CONSUMER ERROR LAB/);
+  assert.match(html, /dead letter topic/);
   assert.match(html, /Подсказка/);
 });
 

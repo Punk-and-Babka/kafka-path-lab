@@ -28,6 +28,7 @@ const modeCopy: Record<HelpMode, {
     bullets: [
       "Создайте event или выберите локальный файл и отправьте его в Topic.",
       "Меняйте acks, retries, idempotence, Broker и ISR в лабораториях.",
+      "Уроните обработку у Consumer и сравните повторную доставку с DLQ.",
       "Откройте Consumer Group Lab, чтобы изучить rebalance, offsets и lag.",
       "Нажимайте partitions, Brokers и timeline для подробного инспектора.",
     ],
@@ -35,6 +36,7 @@ const modeCopy: Record<HelpMode, {
       { selector: ".learning-mode-switch", title: "Режимы работы", description: "Песочница, готовые учебные сценарии и конструктор используют одну Kafka-модель, но дают разную степень свободы." },
       { selector: ".sandbox-composer", title: "Входные данные", description: "Здесь задаются Topic, Event name, key, headers и payload. Кнопка отправки запускает общую state machine." },
       { selector: ".sandbox-lab-index", title: "Лаборатории Producer и Broker", description: "Быстрые ссылки открывают настройки доставки, сетевые ошибки, отказоустойчивость и Consumer Group." },
+      { selector: "#consumer-error-lab", title: "Ошибки обработки", description: "Уроните десериализацию, handler или запись в БД и посмотрите, как record возвращается снова и когда он уходит в dead letter topic." },
       { selector: "#consumer-group-lab", title: "Consumer Group Lab", description: "Группа встроена после Topic. Управляйте Consumer, assignor, poll(), heartbeat, commit и наблюдайте lag." },
       { selector: ".simulator-card", title: "End-to-end цепочка", description: "Event движется от Producer до БД и __consumer_offsets. Схему можно прокручивать, раскрывать и проходить вручную." },
       { selector: ".inspector", title: "Инспектор результата", description: "Здесь объясняется активный шаг, конфигурация доставки и состояние выбранного event." },

@@ -3,6 +3,8 @@ import test from "node:test";
 
 import {
   classifyRecordAvailability,
+  consumerStepOrder,
+  DEFAULT_CONSUMER_CONFIG,
   evaluateDelivery,
   partitionRuntime,
   replicaRoleLabel,
@@ -285,14 +287,23 @@ const deliveryConfig = (overrides = {}) => ({
 });
 
 /** Собирает event так же, как это делает песочница при отправке. */
-const eventFor = (config, faultMode = "none", runtime = healthyRuntime, partition = 0) => ({
+const eventFor = (
+  config,
+  faultMode = "none",
+  runtime = healthyRuntime,
+  partition = 0,
+  consumer = DEFAULT_CONSUMER_CONFIG,
+) => ({
   partition,
   delivery: config,
+  consumer,
   faultMode,
   stage: 0,
-  stepOrder: stepOrderForConfig(config, faultMode),
+  stepOrder: stepOrderForConfig(config, faultMode, consumer),
   result: evaluateDelivery(config, partition, runtime, faultMode),
 });
+
+const consumerConfig = (overrides = {}) => ({ ...DEFAULT_CONSUMER_CONFIG, ...overrides });
 
 const orderIndex = (order, step) => order.indexOf(step);
 
@@ -383,4 +394,109 @@ test("the dedup step only runs when a retry actually produced or suppressed a co
   assert.equal(duplicating.result.duplicateWritten, true);
   assert.equal(stepDisposition(duplicating, "retryResolution"), "success");
   assert.equal(stepDisposition(clean, "retryResolution"), "skipped");
+});
+
+test("a successful handler keeps the original consumer pipeline", () => {
+  assert.deepEqual(consumerStepOrder(consumerConfig()), [
+    "consumerFetch",
+    "deserialization",
+    "businessProcessing",
+    "sinkWrite",
+    "offsetCommit",
+  ]);
+});
+
+test("a failing step stops the pipeline and adds redelivery", () => {
+  assert.deepEqual(consumerStepOrder(consumerConfig({ failureMode: "processing" })), [
+    "consumerFetch",
+    "deserialization",
+    "businessProcessing",
+    "redelivery",
+    "deadLetter",
+    "offsetCommit",
+  ]);
+  assert.deepEqual(consumerStepOrder(consumerConfig({ failureMode: "deserialization" })), [
+    "consumerFetch",
+    "deserialization",
+    "redelivery",
+    "deadLetter",
+    "offsetCommit",
+  ]);
+});
+
+test("without a dead letter topic the offset is never committed", () => {
+  const order = consumerStepOrder(consumerConfig({
+    failureMode: "processing",
+    deadLetterTopic: false,
+  }));
+
+  assert.deepEqual(order, [
+    "consumerFetch",
+    "deserialization",
+    "businessProcessing",
+    "redelivery",
+  ]);
+  assert.equal(order.includes("offsetCommit"), false);
+});
+
+test("a handler exception fails processing and skips the side effect", () => {
+  const event = eventFor(
+    deliveryConfig(),
+    "none",
+    healthyRuntime,
+    0,
+    consumerConfig({ failureMode: "processing" }),
+  );
+
+  assert.equal(stepDisposition(event, "consumerFetch"), "success");
+  assert.equal(stepDisposition(event, "deserialization"), "success");
+  assert.equal(stepDisposition(event, "businessProcessing"), "failed");
+  assert.equal(stepDisposition(event, "sinkWrite"), "skipped");
+  assert.equal(stepDisposition(event, "redelivery"), "success");
+  assert.equal(stepDisposition(event, "deadLetter"), "success");
+  assert.equal(stepDisposition(event, "offsetCommit"), "success");
+});
+
+test("a deserialization failure never reaches the handler", () => {
+  const event = eventFor(
+    deliveryConfig(),
+    "none",
+    healthyRuntime,
+    0,
+    consumerConfig({ failureMode: "deserialization" }),
+  );
+
+  assert.equal(stepDisposition(event, "deserialization"), "failed");
+  assert.equal(stepDisposition(event, "businessProcessing"), "skipped");
+  assert.equal(stepDisposition(event, "sinkWrite"), "skipped");
+});
+
+test("a poison pill without DLQ blocks the commit instead of finishing", () => {
+  const event = eventFor(
+    deliveryConfig(),
+    "none",
+    healthyRuntime,
+    0,
+    consumerConfig({ failureMode: "sink", deadLetterTopic: false }),
+  );
+
+  assert.equal(stepDisposition(event, "sinkWrite"), "failed");
+  assert.equal(stepDisposition(event, "redelivery"), "success");
+  assert.equal(stepDisposition(event, "deadLetter"), "skipped");
+  assert.equal(stepDisposition(event, "offsetCommit"), "skipped");
+});
+
+test("an uncommitted record skips the consumer failure path entirely", () => {
+  const event = eventFor(
+    deliveryConfig({ acks: "1", replicationFactor: 1, minInSyncReplicas: 2, idempotence: false }),
+    "none",
+    { onlineBrokers: [1], laggingReplicas: [], leaders: [1, 2, 3] },
+    0,
+    consumerConfig({ failureMode: "processing" }),
+  );
+
+  assert.equal(event.result.recordCommitted, false);
+  assert.equal(stepDisposition(event, "businessProcessing"), "skipped");
+  assert.equal(stepDisposition(event, "redelivery"), "skipped");
+  assert.equal(stepDisposition(event, "deadLetter"), "skipped");
 });

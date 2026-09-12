@@ -14,6 +14,7 @@ import {
   isConsumed, isDeserialized, isFollowerReplicated, isLogVisible,
   isOffsetCommitted, isProcessed, isRetryResolved, isSinkWritten,
   isRecordCommitted, lifecycleForEvent, LifecycleStatus, PARTITION_COUNT,
+  ConsumerConfig, ConsumerFailureMode, DEFAULT_CONSUMER_CONFIG, isDeadLettered,
   NetworkFaultMode, partitionRuntime, replicaChipClass, replicaKey,
   replicaRoleLabel, resolvePartition,
   SAME_KEY_VALUES, SCENARIOS, ScenarioId, SimulationStep, STEP_BY_ID,
@@ -43,6 +44,8 @@ const lifecycleLabels = {
   deserialization: ["Deserialize", "Payload преобразован"],
   businessProcessing: ["Business handler", "Правила выполнены"],
   sinkWrite: ["Database write", "Результат сохранён"],
+  redelivery: ["Redelivery", "Тот же offset снова"],
+  deadLetter: ["Dead letter topic", "Record отложен"],
   offsetCommit: ["Offset commit", "Позиция сохранена"],
 } as const;
 const statusText: Record<LifecycleStatus, string> = {
@@ -60,6 +63,17 @@ const faultOptions: {
   { id: "none", title: "Сеть работает", description: "Запрос и ACK доходят" },
   { id: "request-lost", title: "Потерять request", description: "Сбой до записи Broker" },
   { id: "ack-lost", title: "Потерять ACK", description: "Сбой после append" },
+];
+
+const consumerFaultOptions: {
+  id: ConsumerFailureMode;
+  title: string;
+  description: string;
+}[] = [
+  { id: "none", title: "Обработка проходит", description: "Handler доводит record до БД" },
+  { id: "deserialization", title: "Ошибка формата", description: "payload не соответствует схеме" },
+  { id: "processing", title: "Исключение в handler", description: "бизнес-правило падает" },
+  { id: "sink", title: "БД недоступна", description: "запись в service_db не проходит" },
 ];
 
 const storageFileCopy = {
@@ -304,6 +318,19 @@ function copyForStep(event: EventRecord | null, step: SimulationStep | null) {
         };
   }
 
+  if (step.id === "redelivery") {
+    const failedStep = event.consumer.failureMode === "deserialization"
+      ? "десериализация"
+      : event.consumer.failureMode === "processing" ? "бизнес-обработка" : "запись в БД";
+    return {
+      title: "Record будет доставлен повторно",
+      description: `Упала ${failedStep}, поэтому offset не зафиксирован. Приложение повторит обработку до ${event.consumer.deliveryAttempts} раз.`,
+      technical: event.consumer.deadLetterTopic
+        ? "Kafka считает record выданным; повтор — это следствие отсутствия commit, а не встроенный retry Broker."
+        : "Без DLQ попытки не заканчиваются ничем: partition остановится на этом offset, а lag будет расти.",
+    };
+  }
+
   return {
     title: step.title,
     description: step.description,
@@ -324,6 +351,7 @@ export default function Home() {
   const [fileMeta, setFileMeta] = useState<{ name: string; type: string; size: number } | null>(null);
   const [deliveryConfig, setDeliveryConfig] = useState<DeliveryConfig>({ ...scenario.config });
   const [faultMode, setFaultMode] = useState<NetworkFaultMode>(scenario.faultMode);
+  const [consumerConfig, setConsumerConfig] = useState<ConsumerConfig>({ ...DEFAULT_CONSUMER_CONFIG });
   const [configErrorAccepted, setConfigErrorAccepted] = useState(false);
   const [events, setEvents] = useState<EventRecord[]>([]);
   const [labRecords, setLabRecords] = useState<Array<{ id: string; partition: number; offset: number }>>([]);
@@ -374,7 +402,8 @@ export default function Home() {
     : null;
   const activeStepCopy = copyForStep(activeEvent, activeStep);
   const selectedLifecycle = lifecycleForEvent(selectedEvent);
-  const selectedStepOrder = selectedEvent?.stepOrder ?? stepOrderForConfig(deliveryConfig, faultMode);
+  const selectedStepOrder = selectedEvent?.stepOrder
+    ?? stepOrderForConfig(deliveryConfig, faultMode, consumerConfig);
   const isGuided = learningMode === "guided";
   const sameKeyCount = events.filter((event) => event.scenarioId === "same-key").length;
   const canSend = (!activeEvent || activeEvent.stage === activeEvent.stepOrder.length - 1)
@@ -421,7 +450,7 @@ export default function Home() {
   );
   const focusedFollower = focusedPartitionState.assignedReplicas.find((broker) =>
     broker !== focusedPartitionState.leaderBroker) ?? null;
-  const previewStepOrder = stepOrderForConfig(deliveryConfig, faultMode);
+  const previewStepOrder = stepOrderForConfig(deliveryConfig, faultMode, consumerConfig);
   const inspectorDelivery = selectedEvent?.delivery ?? deliveryConfig;
   const inspectorResult = selectedEvent?.result ?? previewResult;
   const inspectorPartition = selectedEvent?.partition ?? previewPartition;
@@ -771,7 +800,8 @@ export default function Home() {
       scenarioId: isGuided ? scenarioId : "sandbox",
       sequence,
       createdAt: formatTime(new Date()), delivery, result,
-      stepOrder: stepOrderForConfig(delivery, faultMode),
+      consumer: { ...consumerConfig },
+      stepOrder: stepOrderForConfig(delivery, faultMode, consumerConfig),
       faultMode,
       producerId: "producer-7f31",
       producerEpoch: 0,
@@ -831,6 +861,7 @@ export default function Home() {
     const defaultStand = SCENARIOS[0];
     setDeliveryConfig({ ...defaultStand.config });
     setFaultMode("none");
+    setConsumerConfig({ ...DEFAULT_CONSUMER_CONFIG });
     setConfigErrorAccepted(false);
     applyScenarioCluster(defaultStand);
     resetScenario();
@@ -851,6 +882,15 @@ export default function Home() {
     setPlaying(false);
     setEvents((current) => current.map((event) =>
       event.id === activeEvent.id ? { ...event, stage } : event));
+  };
+
+  const setConsumerOption = <K extends keyof ConsumerConfig>(
+    key: K,
+    value: ConsumerConfig[K],
+  ) => {
+    if (isGuided) return;
+    setConsumerConfig((current) => ({ ...current, [key]: value }));
+    if (events.length) resetScenario();
   };
 
   const selectFaultMode = (mode: NetworkFaultMode) => {
@@ -913,6 +953,7 @@ export default function Home() {
       case "processor": return { x: 78.6, y: 50 };
       case "sink": return { x: 88.6, y: 32 };
       case "offset": return { x: 78.6, y: 76 };
+      case "dlq": return { x: 88.6, y: 76 };
       default: return { x: 8.9, y: 50 };
     }
   }, [activeStep, followerY, leaderY, partitionY]);
@@ -926,6 +967,9 @@ export default function Home() {
     viewport.scrollTo({ left: Math.max(0, target), behavior: "smooth" });
   }, [activeEvent, autoFollow, orb.x, showClusterFocus]);
 
+  const activeConsumerConfig = activeEvent?.consumer ?? consumerConfig;
+  const dlqRouted = activeConsumerConfig.failureMode !== "none"
+    && activeConsumerConfig.deadLetterTopic;
   const ackReached = activeEvent
     ? hasProducerResult(activeEvent) && activeEvent.delivery.acks !== "0"
     : false;
@@ -1274,6 +1318,9 @@ export default function Home() {
             </button>
             <button onClick={() => openSandboxLab("resilience-lab")}>
               <Network size={16} /><span><strong>Cluster Resilience</strong><small>Broker · Leader · ISR · failover</small></span>
+            </button>
+            <button onClick={() => openSandboxLab("consumer-error-lab")}>
+              <AlertTriangle size={16} /><span><strong>Consumer Errors</strong><small>retry · redelivery · DLQ</small></span>
             </button>
             <button className="consumer-lab-link" onClick={() => openSandboxLab("consumer-group-lab")}>
               <Users size={16} /><span><strong>Consumer Group Lab</strong><small>rebalance · offsets · lag · commit</small></span>
@@ -1707,6 +1754,75 @@ export default function Home() {
           )}
         </section>
 
+
+        <section id="consumer-error-lab" className="retry-lab consumer-error-lab" aria-label="Ошибки обработки Consumer и dead letter topic">
+          <header className="retry-lab-heading">
+            <div>
+              <span><AlertTriangle size={16} /> CONSUMER ERROR LAB · {APP_VERSION}</span>
+              <h2>Что произойдёт, если обработка упадёт</h2>
+              <p>{isGuided
+                ? "В учебных сценариях обработка всегда успешна. Откройте песочницу, чтобы уронить handler и посмотреть на повторную доставку."
+                : "Kafka не знает об ошибках приложения. Пока offset не зафиксирован, тот же record будет приходить снова — выберите, где именно оборвётся обработка."}</p>
+            </div>
+          </header>
+
+          <div className={`fault-selector consumer-fault-selector ${isGuided ? "locked" : ""}`}>
+            {consumerFaultOptions.map((option) => (
+              <button
+                key={option.id}
+                className={consumerConfig.failureMode === option.id ? "active" : ""}
+                aria-pressed={consumerConfig.failureMode === option.id}
+                disabled={isGuided}
+                onClick={() => setConsumerOption("failureMode", option.id)}
+              >
+                <i>{option.id === "none"
+                  ? <Check size={16} />
+                  : option.id === "deserialization"
+                    ? <Braces size={16} />
+                    : option.id === "processing"
+                      ? <Activity size={16} />
+                      : <Database size={16} />}</i>
+                <span><strong>{option.title}</strong><small>{option.description}</small></span>
+              </button>
+            ))}
+          </div>
+
+          <div className="consumer-error-controls">
+            <div className="config-control">
+              <label htmlFor="attempts-select">Попыток обработки <small>Решает приложение, не Broker</small></label>
+              <select
+                id="attempts-select"
+                value={consumerConfig.deliveryAttempts}
+                disabled={isGuided || consumerConfig.failureMode === "none"}
+                onChange={(event) => setConsumerOption("deliveryAttempts", Number(event.target.value))}
+              >
+                {[1, 3, 5].map((value) => <option key={value} value={value}>{value}</option>)}
+              </select>
+            </div>
+            <div className="config-control idempotence-control">
+              <label>dead letter topic <small>Куда уходит «ядовитый» record</small></label>
+              <button
+                role="switch"
+                aria-checked={consumerConfig.deadLetterTopic}
+                className={`toggle-control ${consumerConfig.deadLetterTopic ? "active" : ""}`}
+                disabled={isGuided || consumerConfig.failureMode === "none"}
+                onClick={() => setConsumerOption("deadLetterTopic", !consumerConfig.deadLetterTopic)}
+              >
+                <i><span /></i>{consumerConfig.deadLetterTopic ? "включён" : "выключен"}
+              </button>
+            </div>
+            <p className={`consumer-error-outcome ${consumerConfig.failureMode === "none"
+              ? "ok"
+              : consumerConfig.deadLetterTopic ? "warning" : "danger"}`}>
+              {consumerConfig.failureMode === "none"
+                ? "Обработка доходит до конца: offset фиксируется, группа движется дальше."
+                : consumerConfig.deadLetterTopic
+                  ? `Record повторится ${consumerConfig.deliveryAttempts} раз, затем уйдёт в ${topicName || TOPIC_NAME}.DLQ, и только после этого offset продвинется.`
+                  : "Без DLQ offset не зафиксируется никогда: poll() будет возвращать один и тот же record, а partition встанет — это poison pill."}
+            </p>
+          </div>
+        </section>
+
         </>}
 
         {!isGuided && <ConsumerGroupLab
@@ -1924,6 +2040,12 @@ export default function Home() {
                 <span className="node-icon mint"><ShieldCheck size={21} /></span>
                 <div><strong>Offset Store</strong><small>__consumer_offsets</small></div>
               </div>
+              {dlqRouted && (
+                <div className={`map-node dlq-node pipeline-node ${activeStep?.node === "dlq" ? "current" : ""} ${activeEvent && isDeadLettered(activeEvent) ? "reached" : ""}`}>
+                  <span className="node-icon amber"><AlertTriangle size={21} /></span>
+                  <div><strong>{`${activeEvent?.topic || topicName || TOPIC_NAME}.DLQ`}</strong><small>dead letter topic</small></div>
+                </div>
+              )}
               {activeEvent && activeStep && <div className={`event-orb stage-${activeEvent.stage} ${activeDisposition ?? ""}`} style={{ left: `${orb.x}%`, top: `${orb.y}%` }}><b>{
                 activeStep.node === "ack"
                   ? activeEvent.delivery.acks === "0" ? "∅" : activeEvent.result.producerResult === "error" ? "ERR" : "ACK"

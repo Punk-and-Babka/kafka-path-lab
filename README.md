@@ -107,6 +107,8 @@ Preset сценария можно перенести в песочницу кн
   и failover.
 - **Consumer Group Lab** — assignments, rebalance, poll, heartbeat, offsets,
   commit и lag в общей цепочке после Topic.
+- **Consumer Error Lab** — ошибка формата, исключение в handler, недоступная
+  БД, повторная доставка того же offset и dead letter topic.
 
 Файл не загружается на сервер. Текстовые данные до 256 KB читаются локально,
 а для крупных или бинарных файлов симулятор формирует metadata record.

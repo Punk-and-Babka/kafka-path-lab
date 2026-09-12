@@ -16,6 +16,20 @@ export type ScenarioId =
   | "ack-lost-idempotent";
 export type AcksMode = "0" | "1" | "all";
 export type NetworkFaultMode = "none" | "request-lost" | "ack-lost";
+export type ConsumerFailureMode = "none" | "deserialization" | "processing" | "sink";
+
+export type ConsumerConfig = {
+  failureMode: ConsumerFailureMode;
+  deliveryAttempts: number;
+  deadLetterTopic: boolean;
+};
+
+export const DEFAULT_CONSUMER_CONFIG: ConsumerConfig = {
+  failureMode: "none",
+  deliveryAttempts: 3,
+  deadLetterTopic: true,
+};
+
 export type SimulationNode =
   | "producer"
   | "partition"
@@ -29,7 +43,8 @@ export type SimulationNode =
   | "deserializer"
   | "processor"
   | "sink"
-  | "offset";
+  | "offset"
+  | "dlq";
 export type LifecycleKey =
   | "producerSend"
   | "partitioning"
@@ -44,6 +59,8 @@ export type LifecycleKey =
   | "deserialization"
   | "businessProcessing"
   | "sinkWrite"
+  | "redelivery"
+  | "deadLetter"
   | "offsetCommit";
 export type LifecycleStatus = "waiting" | "active" | "done" | "skipped" | "failed";
 export type StepDisposition = "success" | "skipped" | "failed";
@@ -147,6 +164,7 @@ export type EventRecord = {
   sequence: number;
   createdAt: string;
   delivery: DeliveryConfig;
+  consumer: ConsumerConfig;
   result: DeliveryResult;
   stepOrder: LifecycleKey[];
   faultMode: NetworkFaultMode;
@@ -260,6 +278,22 @@ export const STEPS: SimulationStep[] = [
     description: "Consumer записал результат обработки в service_db — появился наблюдаемый side effect.",
     technical: "Для QA важно связать eventId, partition и offset с записью в БД и проверить идемпотентность этой операции.",
     node: "sink",
+  },
+  {
+    id: "redelivery",
+    short: "Redeliver",
+    title: "Тот же record доставлен повторно",
+    description: "Обработка не дошла до конца, offset не зафиксирован — следующий poll() этой группы вернёт запись с того же offset.",
+    technical: "Kafka ничего не знает об ошибке приложения. Повторную доставку вызывает именно отсутствие commit, а число попыток решает приложение, а не Broker.",
+    node: "consumer",
+  },
+  {
+    id: "deadLetter",
+    short: "DLQ",
+    title: "Record отправлен в dead letter topic",
+    description: "Попытки исчерпаны: приложение публикует запись в отдельный topic и только после этого двигает offset вперёд.",
+    technical: "DLQ — решение приложения, а не встроенная возможность Kafka. Без него неудачный record повторяется бесконечно и останавливает всю partition.",
+    node: "dlq",
   },
   {
     id: "offsetCommit",
@@ -597,20 +631,48 @@ export function replicaChipClass(state: PartitionRuntime, broker: number) {
   return isLeaderReplica(state, broker) ? "leader" : "follower";
 }
 
-export function stepOrderForConfig(
-  config: DeliveryConfig,
-  faultMode: NetworkFaultMode = "none",
-): LifecycleKey[] {
-  const afterAppend = config.acks === "1"
-    ? ["producerAck", "replication", "committed"] as LifecycleKey[]
-    : ["replication", "committed", "producerAck"] as LifecycleKey[];
-  const finish = [
+/** Порядковый номер шага Consumer, на котором может произойти отказ. */
+const CONSUMER_FAILURE_RANK: Record<ConsumerFailureMode, number> = {
+  none: Number.POSITIVE_INFINITY,
+  deserialization: 1,
+  processing: 2,
+  sink: 3,
+};
+
+const CONSUMER_STEP_RANK: Partial<Record<LifecycleKey, number>> = {
+  deserialization: 1,
+  businessProcessing: 2,
+  sinkWrite: 3,
+};
+
+export function consumerStepOrder(consumer: ConsumerConfig): LifecycleKey[] {
+  const pipeline = [
     "consumerFetch",
     "deserialization",
     "businessProcessing",
     "sinkWrite",
-    "offsetCommit",
   ] as LifecycleKey[];
+  if (consumer.failureMode === "none") return [...pipeline, "offsetCommit"];
+
+  // Цепочка обрывается на упавшем шаге: следующие обработчики не вызываются.
+  const failureRank = CONSUMER_FAILURE_RANK[consumer.failureMode];
+  const reached = pipeline.filter((step) =>
+    (CONSUMER_STEP_RANK[step] ?? 0) <= failureRank);
+  // Без DLQ commit не происходит вовсе: группа остаётся на том же offset.
+  return consumer.deadLetterTopic
+    ? [...reached, "redelivery", "deadLetter", "offsetCommit"]
+    : [...reached, "redelivery"];
+}
+
+export function stepOrderForConfig(
+  config: DeliveryConfig,
+  faultMode: NetworkFaultMode = "none",
+  consumer: ConsumerConfig = DEFAULT_CONSUMER_CONFIG,
+): LifecycleKey[] {
+  const afterAppend = config.acks === "1"
+    ? ["producerAck", "replication", "committed"] as LifecycleKey[]
+    : ["replication", "committed", "producerAck"] as LifecycleKey[];
+  const finish = consumerStepOrder(consumer);
 
   if (faultMode === "request-lost") {
     if (config.acks === "0" || config.retries === 0) {
@@ -806,11 +868,34 @@ export function stepDisposition(
       if (event.delivery.acks === "0") return "skipped";
       return event.result.producerResult === "ack" ? "success" : "failed";
     case "consumerFetch":
+      return event.result.recordCommitted ? "success" : "skipped";
     case "deserialization":
     case "businessProcessing":
-    case "sinkWrite":
-    case "offsetCommit":
-      return event.result.recordCommitted ? "success" : "skipped";
+    case "sinkWrite": {
+      if (!event.result.recordCommitted) return "skipped";
+      const failureRank = CONSUMER_FAILURE_RANK[event.consumer.failureMode];
+      const stepRank = CONSUMER_STEP_RANK[stepId] ?? 0;
+      if (stepRank === failureRank) return "failed";
+      // Шаги после упавшего просто не выполняются.
+      return stepRank > failureRank ? "skipped" : "success";
+    }
+    case "redelivery":
+      return event.result.recordCommitted && event.consumer.failureMode !== "none"
+        ? "success"
+        : "skipped";
+    case "deadLetter":
+      return event.result.recordCommitted
+        && event.consumer.failureMode !== "none"
+        && event.consumer.deadLetterTopic
+        ? "success"
+        : "skipped";
+    case "offsetCommit": {
+      if (!event.result.recordCommitted) return "skipped";
+      // Без DLQ неудачный record не даёт группе продвинуться дальше.
+      const blocked = event.consumer.failureMode !== "none"
+        && !event.consumer.deadLetterTopic;
+      return blocked ? "skipped" : "success";
+    }
   }
 }
 
@@ -872,15 +957,23 @@ export function isDeserialized(event: EventRecord) {
 export function isProcessed(event: EventRecord) {
   return event.result.recordCommitted
     && event.stepOrder.includes("businessProcessing")
-    && reached(event, "businessProcessing");
+    && reached(event, "businessProcessing")
+    && stepDisposition(event, "businessProcessing") === "success";
 }
 
 export function isSinkWritten(event: EventRecord) {
   return event.result.recordCommitted
     && event.stepOrder.includes("sinkWrite")
-    && reached(event, "sinkWrite");
+    && reached(event, "sinkWrite")
+    && stepDisposition(event, "sinkWrite") === "success";
 }
 
 export function isOffsetCommitted(event: EventRecord) {
-  return event.result.recordCommitted && reached(event, "offsetCommit");
+  return event.result.recordCommitted
+    && event.stepOrder.includes("offsetCommit")
+    && reached(event, "offsetCommit");
+}
+
+export function isDeadLettered(event: EventRecord) {
+  return event.stepOrder.includes("deadLetter") && reached(event, "deadLetter");
 }
