@@ -1323,8 +1323,7 @@ export default function Home() {
               <select
                 id="rf-select"
                 value={deliveryConfig.replicationFactor}
-                disabled={isGuided || (deliveryConfig.acks === "0" && option.id === "ack-lost")}
-                title={deliveryConfig.acks === "0" && option.id === "ack-lost" ? "При acks=0 Producer не ожидает ACK" : undefined}
+                disabled={isGuided}
                 onChange={(event) => setConfig("replicationFactor", Number(event.target.value))}
               >
                 {[1, 2, 3].map((value) => <option key={value} value={value}>{value}</option>)}
