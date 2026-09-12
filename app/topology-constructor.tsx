@@ -12,99 +12,16 @@ import {
   useEffect, useMemo, useRef, useState,
 } from "react";
 import { GLOSSARY } from "./glossary-data";
+import {
+  AcksMode, CANVAS_HEIGHT, CANVAS_WIDTH, clamp, consumerForPartition, consumerGroupsForTopic,
+  EventRun, EventStep, isSavedTopology, NODE_HEIGHT, NODE_WIDTH, NodeConfig,
+  NodeKind, nodeCenter, nodeDefaults, nodeMeta, nextId, presetEdges, presetNodes,
+  Replica, ReplicaRole, SavedTopology, TopologyEdge, TopologyNode, validateTopology,
+} from "./topology-model";
+import { resolvePartition } from "./simulator-model";
+import { APP_VERSION } from "./version";
 
 type LearningMode = "sandbox" | "guided" | "constructor";
-type NodeKind = "producer" | "topic" | "broker" | "consumer" | "database";
-type AcksMode = "0" | "1" | "all";
-type ReplicaRole = "leader" | "follower";
-
-type Replica = {
-  topicId: string;
-  partition: number;
-  role: ReplicaRole;
-  inIsr: boolean;
-};
-
-type NodeConfig = {
-  acks?: AcksMode;
-  retries?: number;
-  idempotence?: boolean;
-  topicName?: string;
-  partitions?: number;
-  minIsr?: number;
-  brokerId?: number;
-  online?: boolean;
-  replicas?: Replica[];
-  groupId?: string;
-  autoCommit?: boolean;
-  tableName?: string;
-};
-
-type TopologyNode = {
-  id: string;
-  kind: NodeKind;
-  label: string;
-  x: number;
-  y: number;
-  config: NodeConfig;
-};
-
-type TopologyEdge = {
-  id: string;
-  from: string;
-  to: string;
-};
-
-type ValidationIssue = {
-  level: "error" | "warning";
-  message: string;
-  nodeId?: string;
-};
-
-type EventStep = {
-  nodeId: string;
-  title: string;
-  detail: string;
-  state: "success" | "warning" | "error";
-};
-
-type EventRun = {
-  id: string;
-  topicId: string;
-  partition: number | null;
-  key: string;
-  payload: string;
-  offset: number | null;
-  steps: EventStep[];
-  currentStep: number;
-  finalState: "success" | "warning" | "error";
-};
-
-type SavedTopology = {
-  format: "kafka-path-topology";
-  version: 1;
-  savedAt: string;
-  nodes: TopologyNode[];
-  edges: TopologyEdge[];
-};
-
-const CANVAS_WIDTH = 1320;
-const CANVAS_HEIGHT = 670;
-const NODE_WIDTH = 176;
-const NODE_HEIGHT = 104;
-
-const nodeMeta: Record<NodeKind, {
-  title: string;
-  description: string;
-  className: string;
-}> = {
-  producer: { title: "Producer", description: "создаёт records", className: "producer" },
-  topic: { title: "Topic", description: "логические partitions", className: "topic" },
-  broker: { title: "Broker", description: "хранит replicas", className: "broker" },
-  consumer: { title: "Consumer", description: "читает partition", className: "consumer" },
-  database: { title: "Database", description: "принимает результат", className: "database" },
-};
-
 const kindIcon = (kind: NodeKind, size = 18) => {
   if (kind === "producer") return <Radio size={size} />;
   if (kind === "topic") return <Boxes size={size} />;
@@ -112,140 +29,6 @@ const kindIcon = (kind: NodeKind, size = 18) => {
   if (kind === "consumer") return <Users size={size} />;
   return <Database size={size} />;
 };
-
-const nodeDefaults = (kind: NodeKind, index: number): NodeConfig => {
-  if (kind === "producer") return { acks: "all", retries: 3, idempotence: true };
-  if (kind === "topic") return { topicName: `events.topic.${index}`, partitions: 3, minIsr: 2 };
-  if (kind === "broker") return { brokerId: index, online: true, replicas: [] };
-  if (kind === "consumer") return { groupId: `workers-${index}`, autoCommit: false };
-  return { tableName: `service_events_${index}` };
-};
-
-const presetNodes = (): TopologyNode[] => [
-  { id: "producer-1", kind: "producer", label: "orders-api", x: 48, y: 274, config: { acks: "all", retries: 3, idempotence: true } },
-  { id: "topic-1", kind: "topic", label: "orders.events", x: 290, y: 274, config: { topicName: "orders.events", partitions: 3, minIsr: 2 } },
-  { id: "broker-1", kind: "broker", label: "Broker 1", x: 550, y: 70, config: { brokerId: 1, online: true, replicas: [
-    { topicId: "topic-1", partition: 0, role: "leader", inIsr: true },
-    { topicId: "topic-1", partition: 2, role: "follower", inIsr: true },
-  ] } },
-  { id: "broker-2", kind: "broker", label: "Broker 2", x: 550, y: 274, config: { brokerId: 2, online: true, replicas: [
-    { topicId: "topic-1", partition: 0, role: "follower", inIsr: true },
-    { topicId: "topic-1", partition: 1, role: "leader", inIsr: true },
-  ] } },
-  { id: "broker-3", kind: "broker", label: "Broker 3", x: 550, y: 478, config: { brokerId: 3, online: true, replicas: [
-    { topicId: "topic-1", partition: 1, role: "follower", inIsr: true },
-    { topicId: "topic-1", partition: 2, role: "leader", inIsr: true },
-  ] } },
-  { id: "consumer-1", kind: "consumer", label: "orders-worker-1", x: 825, y: 205, config: { groupId: "orders-workers", autoCommit: false } },
-  { id: "consumer-2", kind: "consumer", label: "orders-worker-2", x: 825, y: 360, config: { groupId: "orders-workers", autoCommit: false } },
-  { id: "database-1", kind: "database", label: "service_db", x: 1080, y: 282, config: { tableName: "processed_orders" } },
-];
-
-const presetEdges = (): TopologyEdge[] => [
-  { id: "edge-producer-topic", from: "producer-1", to: "topic-1" },
-  { id: "edge-topic-b1", from: "topic-1", to: "broker-1" },
-  { id: "edge-topic-b2", from: "topic-1", to: "broker-2" },
-  { id: "edge-topic-b3", from: "topic-1", to: "broker-3" },
-  { id: "edge-topic-c1", from: "topic-1", to: "consumer-1" },
-  { id: "edge-topic-c2", from: "topic-1", to: "consumer-2" },
-  { id: "edge-c1-db", from: "consumer-1", to: "database-1" },
-  { id: "edge-c2-db", from: "consumer-2", to: "database-1" },
-];
-
-function hashKey(value: string) {
-  let hash = 0;
-  for (let index = 0; index < value.length; index += 1) {
-    hash = ((hash << 5) - hash + value.charCodeAt(index)) | 0;
-  }
-  return Math.abs(hash);
-}
-
-function nextId(kind: NodeKind, nodes: TopologyNode[]) {
-  const used = new Set(nodes.map((node) => node.id));
-  let index = 1;
-  while (used.has(`${kind}-${index}`)) index += 1;
-  return `${kind}-${index}`;
-}
-
-function clamp(value: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, value));
-}
-
-function nodeCenter(node: TopologyNode) {
-  return { x: node.x + NODE_WIDTH / 2, y: node.y + NODE_HEIGHT / 2 };
-}
-
-function validateTopology(nodes: TopologyNode[], edges: TopologyEdge[]): ValidationIssue[] {
-  const issues: ValidationIssue[] = [];
-  const producers = nodes.filter((node) => node.kind === "producer");
-  const topics = nodes.filter((node) => node.kind === "topic");
-  const brokers = nodes.filter((node) => node.kind === "broker");
-  const consumers = nodes.filter((node) => node.kind === "consumer");
-
-  if (!producers.length) issues.push({ level: "error", message: "Добавьте хотя бы один Producer." });
-  if (!topics.length) issues.push({ level: "error", message: "Добавьте хотя бы один Topic." });
-  if (!brokers.length) issues.push({ level: "error", message: "Добавьте хотя бы один Broker." });
-  if (!consumers.length) issues.push({ level: "warning", message: "Consumer отсутствует: records останутся в Kafka." });
-
-  producers.forEach((producer) => {
-    const connectedTopic = edges.some((edge) => edge.from === producer.id
-      && topics.some((topic) => topic.id === edge.to));
-    if (!connectedTopic) issues.push({ level: "error", nodeId: producer.id, message: `${producer.label}: нет исходящей связи с Topic.` });
-    if (producer.config.idempotence && producer.config.acks !== "all") {
-      issues.push({ level: "error", nodeId: producer.id, message: `${producer.label}: enable.idempotence=true требует acks=all.` });
-    }
-    if (producer.config.idempotence && (producer.config.retries ?? 0) < 1) {
-      issues.push({ level: "error", nodeId: producer.id, message: `${producer.label}: idempotence требует retries > 0.` });
-    }
-  });
-
-  topics.forEach((topic) => {
-    const count = clamp(topic.config.partitions ?? 1, 1, 12);
-    const linkedBrokers = new Set(edges.filter((edge) => edge.from === topic.id).map((edge) => edge.to));
-    for (let partition = 0; partition < count; partition += 1) {
-      const replicas = brokers.flatMap((broker) => (broker.config.replicas ?? [])
-        .filter((replica) => replica.topicId === topic.id && replica.partition === partition)
-        .map((replica) => ({ broker, replica })));
-      const leaders = replicas.filter(({ replica }) => replica.role === "leader");
-      if (!replicas.length) issues.push({ level: "error", nodeId: topic.id, message: `${topic.label} · P${partition}: не размещена ни одна replica.` });
-      if (leaders.length === 0) issues.push({ level: "error", nodeId: topic.id, message: `${topic.label} · P${partition}: Leader не назначен.` });
-      if (leaders.length > 1) issues.push({ level: "error", nodeId: topic.id, message: `${topic.label} · P${partition}: назначено несколько Leader.` });
-      if (leaders[0] && leaders[0].broker.config.online === false) {
-        issues.push({ level: "error", nodeId: leaders[0].broker.id, message: `${topic.label} · P${partition}: Leader находится на выключенном Broker.` });
-      }
-      if (leaders[0] && !leaders[0].replica.inIsr) {
-        issues.push({ level: "error", nodeId: leaders[0].broker.id, message: `${topic.label} · P${partition}: Leader должен входить в ISR.` });
-      }
-      replicas.forEach(({ broker }) => {
-        if (!linkedBrokers.has(broker.id)) issues.push({ level: "warning", nodeId: broker.id, message: `${broker.label}: replica P${partition} существует, но Topic не соединён с Broker на холсте.` });
-      });
-    }
-    const invalidReplicas = brokers.flatMap((broker) => (broker.config.replicas ?? [])
-      .filter((replica) => replica.topicId === topic.id && replica.partition >= count)
-      .map((replica) => ({ broker, replica })));
-    invalidReplicas.forEach(({ broker, replica }) => issues.push({ level: "error", nodeId: broker.id, message: `${broker.label}: P${replica.partition} выходит за пределы ${count} partitions Topic.` }));
-    const hasConsumer = edges.some((edge) => edge.from === topic.id
-      && consumers.some((consumer) => consumer.id === edge.to));
-    if (!hasConsumer) issues.push({ level: "warning", nodeId: topic.id, message: `${topic.label}: Consumer не подключён.` });
-  });
-
-  consumers.forEach((consumer) => {
-    const hasInput = edges.some((edge) => edge.to === consumer.id
-      && topics.some((topic) => topic.id === edge.from));
-    if (!hasInput) issues.push({ level: "warning", nodeId: consumer.id, message: `${consumer.label}: нет входящей связи от Topic.` });
-  });
-
-  return issues;
-}
-
-function isSavedTopology(value: unknown): value is SavedTopology {
-  if (!value || typeof value !== "object") return false;
-  const candidate = value as Partial<SavedTopology>;
-  return candidate.format === "kafka-path-topology"
-    && candidate.version === 1
-    && Array.isArray(candidate.nodes)
-    && Array.isArray(candidate.edges);
-}
 
 export default function TopologyConstructor({
   onModeChange,
@@ -525,7 +308,7 @@ export default function TopologyConstructor({
         finalState = "error";
       } else {
         const partitionCount = clamp(topic.config.partitions ?? 1, 1, 12);
-        partition = eventKey.trim() ? hashKey(eventKey) % partitionCount : roundRobin % partitionCount;
+        partition = resolvePartition(eventKey, roundRobin, partitionCount);
         if (!eventKey.trim()) setRoundRobin((value) => value + 1);
         steps.push({ nodeId: topic.id, title: `${topic.label}: P${partition}`, detail: eventKey.trim() ? `key «${eventKey}» → stable hash → P${partition}` : `key=null → round-robin → P${partition}`, state: "success" });
         const replicas = brokers.flatMap((broker) => (broker.config.replicas ?? [])
@@ -558,20 +341,39 @@ export default function TopologyConstructor({
               });
               steps.push({ nodeId: producer.id, title: producer.config.acks === "0" ? "Producer не ждёт ACK" : `ACK ${producer.config.acks}`, detail: producer.config.acks === "0" ? "Запись произошла, но Producer не получает подтверждение." : `Подтверждение после append${producer.config.acks === "all" ? " и ISR replication" : " на Leader"}.`, state: producer.config.acks === "0" ? "warning" : "success" });
 
-              const connectedConsumers = consumers.filter((consumer) => edges.some((edge) => edge.from === topic.id && edge.to === consumer.id));
-              if (!connectedConsumers.length) {
+              const groups = consumerGroupsForTopic(topic.id, consumers, edges);
+              if (!groups.length) {
                 steps.push({ nodeId: topic.id, title: "Record ждёт Consumer", detail: "Kafka сохранила запись, но к Topic не подключён Consumer.", state: "warning" });
                 finalState = "warning";
               } else {
-                const consumer = connectedConsumers[partition % connectedConsumers.length];
-                steps.push({ nodeId: consumer.id, title: `${consumer.label}: fetch`, detail: `${consumer.config.groupId ?? "consumer-group"} получает P${partition} / offset ${offset}.`, state: "success" });
-                const database = nodes.find((node) => node.kind === "database" && edges.some((edge) => edge.from === consumer.id && edge.to === node.id));
-                if (database) {
-                  steps.push({ nodeId: database.id, title: `${database.label}: write`, detail: `Результат сохранён в ${database.config.tableName ?? "table"}; Consumer может commit offset ${offset}.`, state: "success" });
-                } else {
-                  steps.push({ nodeId: consumer.id, title: "Обработано без sink", detail: "Consumer получил event, но Database не подключена.", state: "warning" });
-                  finalState = "warning";
-                }
+                // Каждая группа получает собственную копию record; внутри группы
+                // partition достаётся ровно одному участнику.
+                groups.forEach((group) => {
+                  const consumer = consumerForPartition(group, partition as number);
+                  const scope = group.standalone
+                    ? "без group.id — читает независимо"
+                    : groups.length > 1
+                      ? `группа ${group.groupId} получает свою копию record`
+                      : `группа ${group.groupId}`;
+                  steps.push({ nodeId: consumer.id, title: `${consumer.label}: fetch`, detail: `${scope}; P${partition} / offset ${offset} назначена этому Consumer.`, state: "success" });
+                  const database = nodes.find((node) => node.kind === "database" && edges.some((edge) => edge.from === consumer.id && edge.to === node.id));
+                  if (!database) {
+                    steps.push({ nodeId: consumer.id, title: "Обработано без sink", detail: "Consumer получил event, но Database не подключена.", state: "warning" });
+                    finalState = "warning";
+                    return;
+                  }
+                  steps.push({ nodeId: database.id, title: `${database.label}: write`, detail: `Результат сохранён в ${database.config.tableName ?? "table"}.`, state: "success" });
+                  const autoCommit = consumer.config.autoCommit === true;
+                  steps.push({
+                    nodeId: consumer.id,
+                    title: autoCommit ? "Auto commit offset" : "Manual commit offset",
+                    detail: autoCommit
+                      ? `enable.auto.commit=true: offset ${offset} фиксируется по интервалу и может опередить запись в ${database.label}. При падении Consumer record не будет обработан повторно.`
+                      : `Offset ${offset} зафиксирован после подтверждённой записи в ${database.label}.`,
+                    state: autoCommit ? "warning" : "success",
+                  });
+                  if (autoCommit && finalState === "success") finalState = "warning";
+                });
               }
             }
           }
@@ -604,7 +406,7 @@ export default function TopologyConstructor({
       <header className="topbar">
         <a className="brand" href="#" aria-label="Kafka Path — главная">
           <span className="brand-mark"><Network size={19} /></span>
-          <span>Kafka Path</span><span className="version">version 0.7.3</span>
+          <span>Kafka Path</span><span className="version">{`version ${APP_VERSION}`}</span>
         </a>
         <div className="header-actions">
           <span className="mode-pill constructor"><Workflow size={14} /> Конструктор</span>

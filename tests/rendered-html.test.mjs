@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
+import { APP_VERSION } from "../app/version.ts";
+
 const developmentPreviewMeta =
   /<meta(?=[^>]*\bname=["']codex-preview["'])(?=[^>]*\bcontent=["']development["'])[^>]*>/i;
 
@@ -46,7 +48,7 @@ test("renders the sandbox, guided-scenario, and constructor entry points", async
   const html = await response.text();
 
   assert.equal(response.status, 200);
-  assert.match(html, /version 0\.7\.3/);
+  assert.match(html, new RegExp(`version ${APP_VERSION.replace(/\./g, "\.")}`));
   assert.match(html, /Свободная песочница/);
   assert.match(html, /Учебные сценарии/);
   assert.match(html, /Конструктор/);
@@ -188,4 +190,13 @@ test("keeps contextual help voluntary and available in every mode", async () => 
   assert.match(helpSource, /Справка запускается только по вашему запросу/);
   assert.doesNotMatch(helpSource, /localStorage/);
   assert.doesNotMatch(helpSource, /ШАГ \{stepIndex/);
+});
+
+test("the interface version matches the published package version", async () => {
+  const manifest = JSON.parse(await readFile(
+    new URL("../package.json", import.meta.url),
+    "utf8",
+  ));
+
+  assert.equal(manifest.version, APP_VERSION);
 });

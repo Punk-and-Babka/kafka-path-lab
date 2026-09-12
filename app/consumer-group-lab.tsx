@@ -6,17 +6,18 @@ import {
   Maximize2, Minimize2, RefreshCw, RotateCcw, Save, ServerCrash,
   SlidersHorizontal, TimerReset, Users, WifiOff, X,
 } from "lucide-react";
-import { useEffect, useMemo, useReducer, useState } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
   AssignmentStrategy, CommitMode, consumerLabReducer, createInitialState,
   isMemberOfGroup, MemberStatus, PARTITIONS,
 } from "./consumer-group-model";
+import { APP_VERSION } from "./version";
 
 const MEMBER_COLORS = ["violet", "mint", "amber", "cyan"] as const;
 
 const statusCopy: Record<MemberStatus, { label: string; hint: string }> = {
   active: { label: "ACTIVE", hint: "heartbeat и poll() работают" },
-  slow: { label: "SLOW", hint: "business processing замедлен" },
+  slow: { label: "SLOW", hint: "handler не успевает разобрать batch до следующего poll()" },
   "poll-paused": { label: "POLL PAUSED", hint: "heartbeat есть, poll() остановлен" },
   "heartbeat-lost": { label: "NO HEARTBEAT", hint: "poll() идёт, coordinator не видит heartbeat" },
   crashed: { label: "CRASHED", hint: "process не отвечает; coordinator ждёт timeout" },
@@ -82,14 +83,23 @@ export default function ConsumerGroupLab({
     return () => window.clearTimeout(timer);
   }, [state.phase, state.rebalances]);
 
+  // Producer песочницы пересоздаёт колбэк после каждой партии records. Без ref
+  // интервал пересоздавался бы на каждом такте и сбивал собственный ритм.
+  const produceRef = useRef(onProduceRecords);
+  const producerLockedRef = useRef(producerLocked);
+  useEffect(() => {
+    produceRef.current = onProduceRecords;
+    producerLockedRef.current = producerLocked;
+  }, [onProduceRecords, producerLocked]);
+
   useEffect(() => {
     if (!autoFlow) return;
     const timer = window.setInterval(() => {
-      if (!producerLocked) onProduceRecords(2);
+      if (!producerLockedRef.current) produceRef.current(2);
       dispatch({ type: "TICK" });
     }, 1100);
     return () => window.clearInterval(timer);
-  }, [autoFlow, onProduceRecords, producerLocked]);
+  }, [autoFlow]);
 
   const activeMembers = state.members.filter(isMemberOfGroup);
   const totalLag = state.highWatermark.reduce((total, highWatermark, partition) =>
@@ -109,7 +119,7 @@ export default function ConsumerGroupLab({
     return <section id="consumer-group-lab" className="consumer-lab-collapsed" aria-label="Consumer Group Lab">
       <div className="consumer-lab-launch-icon"><Users size={23} /></div>
       <div className="consumer-lab-launch-copy">
-        <span>ВСТРОЕНА В ОСНОВНУЮ ЦЕПОЧКУ · 0.7.3</span>
+        <span>{`ВСТРОЕНА В ОСНОВНУЮ ЦЕПОЧКУ · ${APP_VERSION}`}</span>
         <h2>Consumer Group Lab</h2>
         <p>Откройте группу, чтобы управлять Consumer, rebalance, poll(), processing, heartbeat, offsets и lag.</p>
       </div>
@@ -127,7 +137,7 @@ export default function ConsumerGroupLab({
   return <section id="consumer-group-lab" className={`consumer-group-lab ${fullscreen ? "is-fullscreen" : ""}`} aria-labelledby="consumer-lab-title">
     <header className="consumer-lab-header">
       <div>
-        <span><Users size={18} /> CONSUMER GROUP LAB · 0.7.3</span>
+        <span><Users size={18} /> {`CONSUMER GROUP LAB · ${APP_VERSION}`}</span>
         <h2 id="consumer-lab-title">От poll() до business processing и commit</h2>
         <p>Topic действительно общий с песочницей. LEO показывает конец Leader log, HW — границу видимости Consumer, fetch position двигается при poll(), processed — после handler, committed — после сохранения offset.</p>
       </div>
@@ -268,6 +278,7 @@ export default function ConsumerGroupLab({
         <ul>
           <li>Одна partition назначена не более чем одному Consumer внутри группы.</li>
           <li><b>Crash</b> не вызывает мгновенный rebalance: сначала истекает session timeout.</li>
+          <li><b>Медленно</b> при коротком <b>max.poll.interval.ms</b> тоже приводит к исключению: heartbeat идёт, но poll() не вызывается, пока handler не закончил batch.</li>
           <li>Fetch position может опережать processed, а auto commit — зафиксировать ещё не обработанный batch.</li>
           <li>Manual commit сохраняет processed offset; после rebalance возможна повторная обработка uncommitted records.</li>
           <li>Consumer lag считается от High Watermark, а records между HW и LEO ещё не выдаются poll().</li>

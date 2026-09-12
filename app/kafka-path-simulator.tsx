@@ -14,7 +14,8 @@ import {
   isConsumed, isDeserialized, isFollowerReplicated, isLogVisible,
   isOffsetCommitted, isProcessed, isRetryResolved, isSinkWritten,
   isRecordCommitted, lifecycleForEvent, LifecycleStatus, PARTITION_COUNT,
-  NetworkFaultMode, partitionRuntime, replicaKey, resolvePartition,
+  NetworkFaultMode, partitionRuntime, replicaChipClass, replicaKey,
+  replicaRoleLabel, resolvePartition,
   SAME_KEY_VALUES, SCENARIOS, ScenarioId, SimulationStep, STEP_BY_ID,
   stepDisposition, stepOrderForConfig, TOPIC_NAME,
 } from "./simulator-model";
@@ -22,6 +23,7 @@ import { GLOSSARY, GLOSSARY_CATEGORIES, GlossaryCategory } from "./glossary-data
 import ConsumerGroupLab from "./consumer-group-lab";
 import ContextualHelp from "./contextual-help";
 import TopologyConstructor from "./topology-constructor";
+import { APP_VERSION } from "./version";
 
 type LearningMode = "guided" | "sandbox" | "constructor";
 
@@ -100,7 +102,7 @@ function GlossaryDialog({
   onClose: () => void;
 }) {
   return <div className="drawer-backdrop" onMouseDown={onClose}><section className="glossary-modal" role="dialog" aria-modal="true" aria-labelledby="glossary-title" onMouseDown={(event) => event.stopPropagation()}>
-    <div className="drawer-header"><div><span>Словарь Kafka Path · 0.7.3</span><h2 id="glossary-title">Термины Kafka</h2></div><button className="icon-button" onClick={onClose} aria-label="Закрыть словарь"><X size={24} /></button></div>
+    <div className="drawer-header"><div><span>{`Словарь Kafka Path · ${APP_VERSION}`}</span><h2 id="glossary-title">Термины Kafka</h2></div><button className="icon-button" onClick={onClose} aria-label="Закрыть словарь"><X size={24} /></button></div>
     <p className="drawer-intro">Короткая суть видна сразу. Откройте карточку, чтобы разобрать механику, пример в лаборатории и то, что важно проверить тестировщику.</p>
 
     <div className="glossary-toolbar">
@@ -196,7 +198,7 @@ function copyForStep(event: EventRecord | null, step: SimulationStep | null) {
     return {
       title: `${result.followerCopies} follower ${result.followerCopies === 1 ? "создал копию" : "создали копии"}`,
       description: `Record хранится на ${result.totalCopies} Brokers из RF=${delivery.replicationFactor}.`,
-      technical: `Текущий ISR=[${result.onlineReplicaBrokers.map((broker) => `B${broker}`).join(", ")}].`,
+      technical: `Текущий ISR=[${result.isrReplicaBrokers.map((broker) => `B${broker}`).join(", ")}].`,
     };
   }
   if (step.id === "committed" && result.recordCommitted) {
@@ -891,7 +893,7 @@ export default function Home() {
   const partition = activeEvent?.partition ?? previewPartition;
   const leaderBroker = activeEvent?.result.leaderBroker
     ?? partitionStates[partition].leaderBroker;
-  const followerBroker = activeEvent?.result.onlineReplicaBrokers.find((broker) =>
+  const followerBroker = activeEvent?.result.isrReplicaBrokers.find((broker) =>
     broker !== leaderBroker)
     ?? partitionStates[partition].assignedReplicas.find((broker) => broker !== leaderBroker)
     ?? leaderBroker;
@@ -1101,7 +1103,7 @@ export default function Home() {
       <header className="topbar">
         <a className="brand" href="#" aria-label="Kafka Path — главная">
           <span className="brand-mark"><Network size={19} /></span>
-          <span>Kafka Path</span><span className="version">version 0.7.3</span>
+          <span>Kafka Path</span><span className="version">{`version ${APP_VERSION}`}</span>
         </a>
         <div className="header-actions">
           <span className={`mode-pill ${isGuided ? "" : "sandbox"}`}>
@@ -1767,14 +1769,14 @@ export default function Home() {
                     key={state.partition}
                     className={`partition-placement-row partition-${state.partition}`}
                     onClick={() => setSelectedPartition(state.partition)}
-                    aria-label={`P${state.partition}: ${state.assignedReplicas.map((broker) => `Broker ${broker} ${broker === state.leaderBroker ? "Leader" : "Follower"}`).join(", ")}`}
+                    aria-label={`P${state.partition}: ${state.assignedReplicas.map((broker) => `Broker ${broker} ${replicaRoleLabel(state, broker)}`).join(", ")}`}
                   >
-                    <span className="placement-partition"><b>P{state.partition}</b><small>в Topic</small></span>
+                    <span className="placement-partition"><b>P{state.partition}</b><small>{state.leaderOnline ? "в Topic" : "нет Leader"}</small></span>
                     <ArrowRight size={15} aria-hidden="true" />
                     <span className="placement-replicas">
                       {state.assignedReplicas.map((broker) => (
-                        <i key={broker} className={broker === state.leaderBroker ? "leader" : "follower"}>
-                          B{broker} <em>{broker === state.leaderBroker ? "Leader" : "Follower"}</em>
+                        <i key={broker} className={replicaChipClass(state, broker)}>
+                          B{broker} <em>{replicaRoleLabel(state, broker)}</em>
                         </i>
                       ))}
                     </span>
@@ -1868,7 +1870,7 @@ export default function Home() {
                 const brokerOnline = onlineBrokers.includes(broker);
                 const leaderCurrent = activeStep?.node === "leader" && broker === leaderBroker;
                 const followerCurrent = activeStep?.node === "follower"
-                  && activeEvent?.result.onlineReplicaBrokers.filter((item) =>
+                  && activeEvent?.result.isrReplicaBrokers.filter((item) =>
                     item !== activeEvent.result.leaderBroker).includes(broker);
                 return <button
                   type="button"
@@ -1882,7 +1884,7 @@ export default function Home() {
                       const match = activeEvent?.partition === replica.partition;
                       const replicated = match
                         && replica.role === "F"
-                        && activeEvent?.result.onlineReplicaBrokers.includes(broker)
+                        && activeEvent?.result.isrReplicaBrokers.includes(broker)
                         && isFollowerReplicated(activeEvent);
                       return <span
                         key={`${replica.partition}-${replica.role}`}
@@ -2028,7 +2030,7 @@ export default function Home() {
                     {selectedEvent?.kind === "file" && <><div><dt>file</dt><dd>{selectedEvent.fileName ?? "—"}</dd></div><div><dt>mime / size</dt><dd>{selectedEvent ? `${selectedEvent.mimeType ?? "binary"} · ${selectedEvent.fileSize ?? 0} B` : "—"}</dd></div></>}
                     <div><dt>partition</dt><dd>{selectedEvent ? `P${selectedEvent.partition}` : "—"}</dd></div><div><dt>offset</dt><dd>{selectedEvent && isLogVisible(selectedEvent) ? selectedEvent.offset : "—"}</dd></div>
                     <div><dt>leader at send</dt><dd>{selectedEvent ? `Broker ${selectedEvent.result.leaderBroker}` : "—"}</dd></div>
-                    <div><dt>followers</dt><dd>{selectedEvent ? selectedEvent.result.onlineReplicaBrokers.filter((broker) => broker !== selectedEvent.result.leaderBroker).map((broker) => `B${broker}`).join(", ") || "none" : "—"}</dd></div>
+                    <div><dt>followers</dt><dd>{selectedEvent ? selectedEvent.result.isrReplicaBrokers.filter((broker) => broker !== selectedEvent.result.leaderBroker).map((broker) => `B${broker}`).join(", ") || "none" : "—"}</dd></div>
                     <div><dt>acks</dt><dd>{selectedEvent?.delivery.acks ?? "—"}</dd></div>
                     <div><dt>online / physical copies</dt><dd>{selectedEvent ? `${inspectorOnlineCopies} / ${inspectorPhysicalCopies}` : "—"}</dd></div>
                     <div><dt>producerId</dt><dd>{selectedEvent?.producerId ?? "—"}</dd></div>

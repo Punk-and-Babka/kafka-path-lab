@@ -62,6 +62,9 @@ export type ConsumerLabAction =
 
 export const PARTITIONS = [0, 1, 2] as const;
 
+/** Учебный аналог max.poll.records: сколько records отдаёт один poll(). */
+export const POLL_BATCH = 2;
+
 export function isMemberOfGroup(member: ConsumerMember) {
   return member.status !== "stopped" && member.status !== "excluded";
 }
@@ -241,7 +244,7 @@ export function consumerLabReducer(
         : action.status === "heartbeat-lost"
           ? "poll() продолжается, но heartbeat не достигает coordinator."
           : action.status === "slow"
-            ? "Приложение обрабатывает уже полученные records медленнее."
+            ? "Приложение разбирает полученный batch медленнее; следующий poll() не будет вызван, пока handler не закончит."
             : "Consumer снова активен.");
   }
 
@@ -297,19 +300,33 @@ export function consumerLabReducer(
     if (state.phase !== "STABLE") return state;
     const time = state.time + 1;
     const exclusionReasons: string[] = [];
+    const backlogFor = (memberId: string) => PARTITIONS.reduce<number>((total, partition) =>
+      state.assignments[partition] === memberId
+        ? total + Math.max(0, state.fetchPosition[partition] - state.processed[partition])
+        : total, 0);
+    // poll() и business processing живут в одном потоке: пока handler не закончил
+    // предыдущий batch, следующий poll() не вызывается. Поэтому медленный
+    // Consumer тоже способен выйти за max.poll.interval.ms — это самая частая
+    // причина исключения в реальной Kafka, а не только полностью остановленный poll().
+    const stalledByProcessing = (member: ConsumerMember) =>
+      member.status === "slow" && backlogFor(member.id) > 0;
+    const pollsThisTick = (member: ConsumerMember) =>
+      !["poll-paused", "crashed"].includes(member.status) && !stalledByProcessing(member);
+
     const members = state.members.map((member) => {
       if (!isMemberOfGroup(member)) return member;
       let next = { ...member };
       if (!["heartbeat-lost", "crashed"].includes(member.status)) next.lastHeartbeat = time;
-      if (!["poll-paused", "crashed"].includes(member.status)) next.lastPoll = time;
+      if (pollsThisTick(member)) next.lastPoll = time;
       if ((member.status === "heartbeat-lost" || member.status === "crashed")
         && time - member.lastHeartbeat >= state.sessionTimeout) {
         next = { ...next, status: "excluded" };
         exclusionReasons.push(`${member.name}: session.timeout.ms=${state.sessionTimeout} с`);
-      } else if (member.status === "poll-paused"
+      } else if ((member.status === "poll-paused" || stalledByProcessing(member))
         && time - member.lastPoll >= state.maxPollInterval) {
         next = { ...next, status: "excluded" };
-        exclusionReasons.push(`${member.name}: max.poll.interval.ms=${state.maxPollInterval} с`);
+        exclusionReasons.push(`${member.name}: max.poll.interval.ms=${state.maxPollInterval} с${
+          stalledByProcessing(member) ? " — handler не завершил предыдущий batch" : ""}`);
       }
       return next;
     });
@@ -325,21 +342,29 @@ export function consumerLabReducer(
     const processed = state.processed.map((current, partition) => {
       const owner = members.find((member) => member.id === state.assignments[partition]);
       if (!owner || !isMemberOfGroup(owner) || owner.status === "crashed") return current;
-      const rate = owner.status === "slow" ? (time % 2 === 0 ? 1 : 0) : 2;
+      // Медленный handler успевает один record за три такта, поэтому batch,
+      // полученный одним poll(), он разбирает заметно дольше учебной секунды.
+      const rate = owner.status === "slow" ? (time % 3 === 0 ? 1 : 0) : 2;
       return Math.min(state.fetchPosition[partition], current + rate);
     });
 
     const fetchPosition = state.fetchPosition.map((current, partition) => {
       const owner = members.find((member) => member.id === state.assignments[partition]);
-      if (!owner || !isMemberOfGroup(owner)
-        || owner.status === "poll-paused" || owner.status === "crashed") return current;
-      const rate = owner.status === "slow" ? 1 : 2;
-      return Math.min(state.highWatermark[partition], current + rate);
+      if (!owner || !isMemberOfGroup(owner) || !pollsThisTick(owner)) return current;
+      // Размер batch задаётся max.poll.records и не зависит от скорости
+      // приложения: медленный Consumer получает такой же batch, просто разбирает
+      // его дольше. Именно поэтому он и способен превысить max.poll.interval.ms.
+      return Math.min(state.highWatermark[partition], current + POLL_BATCH);
     });
 
     const autoCommitDue = state.commitMode === "auto"
       && time - state.lastAutoCommit >= state.autoCommitInterval;
-    const committed = autoCommitDue ? [...fetchPosition] : state.committed;
+    // Auto commit сохраняет позицию только тех partitions, которые действительно
+    // назначены этому члену группы, — как и ручной commit.
+    const committed = autoCommitDue
+      ? state.committed.map((current, partition) =>
+        state.assignments[partition] ? fetchPosition[partition] : current)
+      : state.committed;
     const next = {
       ...state,
       time,

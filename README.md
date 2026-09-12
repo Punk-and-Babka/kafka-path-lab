@@ -181,8 +181,17 @@ git commit -m "Release 0.7.3 topic broker UX"
 git push origin main
 ```
 
-После push GitHub самостоятельно выполнит `npm ci`, статический экспорт и
-публикацию. Папки `node_modules` и `dist` добавлять в репозиторий не нужно.
+После push GitHub самостоятельно выполнит проверку типов, линт и тесты, затем
+статический экспорт и публикацию. Публикация не начнётся, если проверки не
+прошли. Папки `node_modules` и `dist` добавлять в репозиторий не нужно.
+
+Те же проверки можно запустить локально:
+
+```bash
+npm run typecheck
+npm run lint
+npm test
+```
 
 ## Основные файлы
 
@@ -190,8 +199,11 @@ git push origin main
 - `app/consumer-group-lab.tsx` — интерфейс Consumer Group Lab;
 - `app/consumer-group-model.ts` — reducer, offsets, таймеры и rebalance;
 - `app/contextual-help.tsx` — добровольная справка и подсветка интерфейса;
-- `app/topology-constructor.tsx` — холст, topology validation и запуск event;
+- `app/topology-constructor.tsx` — холст, инспектор узлов и запуск event;
+- `app/topology-model.ts` — типы, пресеты, проверка схемы и правила доставки
+  конструктора (чистая логика без React);
 - `app/simulator-model.ts` — модель Kafka, состояния и вычисления;
+- `app/version.ts` — единственный источник версии для интерфейса и метаданных;
 - `app/globals.css` — визуальная система и responsive layout;
 - `app/page.tsx` — статическая оболочка страницы;
 - `scripts/prepare-pages-output.mjs` — подготовка путей GitHub Pages.

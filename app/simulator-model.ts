@@ -81,7 +81,9 @@ export type DeliveryResult = {
   configErrors: string[];
   leaderBroker: number;
   replicaBrokers: number[];
-  onlineReplicaBrokers: number[];
+  // Реплики в ISR на момент записи. Живая, но отстающая replica сюда не входит:
+  // она онлайн, однако не участвует в подтверждении и в High Watermark.
+  isrReplicaBrokers: number[];
   currentIsr: number;
   leaderOnline: boolean;
   leaderAppended: boolean;
@@ -496,11 +498,18 @@ export function hashKey(value: string) {
   return hash;
 }
 
-export function resolvePartition(key: string, keylessCounter: number) {
+// Единый partitioner для песочницы, сценариев и конструктора: одинаковый key
+// обязан попадать в одну и ту же partition в любом режиме приложения.
+export function resolvePartition(
+  key: string,
+  keylessCounter: number,
+  partitionCount: number = PARTITION_COUNT,
+) {
+  const total = Math.max(1, partitionCount);
   const normalized = key.trim();
   return normalized
-    ? hashKey(normalized) % PARTITION_COUNT
-    : keylessCounter % PARTITION_COUNT;
+    ? hashKey(normalized) % total
+    : keylessCounter % total;
 }
 
 export function classifyRecordAvailability(
@@ -569,6 +578,23 @@ export function partitionRuntime(
     leaderOnline: isrBrokers.length > 0,
     leaderElected: isrBrokers.length > 0 && leaderBroker !== preferredLeaderBroker,
   };
+}
+
+// Роль реплики существует только при живом Leader. Когда ни одна реплика
+// partition не находится в ISR, leaderBroker хранит лишь "запрошенного" лидера,
+// и подписывать его Leader нельзя — выбора ещё не произошло.
+export function isLeaderReplica(state: PartitionRuntime, broker: number) {
+  return state.leaderOnline && state.leaderBroker === broker;
+}
+
+export function replicaRoleLabel(state: PartitionRuntime, broker: number) {
+  if (!state.onlineReplicaBrokers.includes(broker)) return "Offline";
+  return isLeaderReplica(state, broker) ? "Leader" : "Follower";
+}
+
+export function replicaChipClass(state: PartitionRuntime, broker: number) {
+  if (!state.onlineReplicaBrokers.includes(broker)) return "offline";
+  return isLeaderReplica(state, broker) ? "leader" : "follower";
 }
 
 export function stepOrderForConfig(
@@ -661,7 +687,7 @@ export function evaluateDelivery(
     runtime ?? fallbackRuntime,
   );
   const replicaBrokers = partitionState.assignedReplicas;
-  const onlineReplicaBrokers = partitionState.isrBrokers;
+  const isrReplicaBrokers = partitionState.isrBrokers;
   const leaderBroker = partitionState.leaderBroker;
   const leaderOnline = partitionState.leaderOnline;
   const currentIsr = leaderOnline ? partitionState.isrBrokers.length : 0;
@@ -684,11 +710,12 @@ export function evaluateDelivery(
   const duplicateSuppressed =
     ackLostAfterWrite && config.retries > 0 && config.idempotence;
   const recordsWritten = leaderAppended ? 1 + (duplicateWritten ? 1 : 0) : 0;
-  const totalCopies = leaderAppended ? Math.max(1, onlineReplicaBrokers.length) : 0;
+  const totalCopies = leaderAppended ? Math.max(1, isrReplicaBrokers.length) : 0;
   const followerCopies = Math.max(0, totalCopies - 1);
-  const recordCommitted = leaderAppended
-    && totalCopies === currentIsr
-    && currentIsr >= config.minInSyncReplicas;
+  // Record становится видимым для Consumer, только когда ISR не меньше
+  // min.insync.replicas: до этого запись существует в логе, но остаётся ниже
+  // High Watermark.
+  const recordCommitted = leaderAppended && currentIsr >= config.minInSyncReplicas;
 
   let producerResult: DeliveryResult["producerResult"];
   let errorCode: string | null = null;
@@ -718,7 +745,7 @@ export function evaluateDelivery(
     configErrors,
     leaderBroker,
     replicaBrokers,
-    onlineReplicaBrokers,
+    isrReplicaBrokers,
     currentIsr,
     leaderOnline,
     leaderAppended,

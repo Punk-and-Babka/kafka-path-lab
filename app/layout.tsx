@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { APP_TITLE } from "./version";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -13,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Kafka Path 0.7.3 — Topic and Broker UX",
+  title: APP_TITLE,
   description:
     "Интерактивная Kafka-лаборатория с Consumer Group Lab: rebalance, partition assignment, heartbeat, poll, offsets, commit и lag.",
   other: {

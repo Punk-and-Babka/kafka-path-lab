@@ -3,8 +3,10 @@ import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } fr
 import handler from "vinext/server/app-router-entry";
 
 interface Env {
-  ASSETS: Fetcher;
-  DB: D1Database;
+  // Минимальные формы cloudflare-биндингов, которые действительно использует
+  // этот worker. Локальные объявления избавляют от зависимости на глобальные
+  // типы Workers и позволяют держать `tsc --noEmit` чистым.
+  ASSETS: { fetch(request: Request): Promise<Response> };
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {

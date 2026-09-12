@@ -4,6 +4,8 @@ import test from "node:test";
 import {
   classifyRecordAvailability,
   evaluateDelivery,
+  partitionRuntime,
+  replicaRoleLabel,
   resolvePartition,
 } from "../app/simulator-model.ts";
 import {
@@ -181,4 +183,91 @@ test("topic synchronization is authoritative and can reset LEO instead of taking
   assert.deepEqual(state.highWatermark, [8, 9, 10]);
   assert.deepEqual(state.fetchPosition, [8, 9, 10]);
   assert.deepEqual(state.committed, [8, 9, 10]);
+});
+
+test("a partition without a live leader labels no replica as Leader", () => {
+  const dead = partitionRuntime(0, 2, {
+    onlineBrokers: [],
+    laggingReplicas: [],
+    leaders: [1, 2, 3],
+  });
+
+  assert.equal(dead.leaderOnline, false);
+  assert.deepEqual(
+    dead.assignedReplicas.map((broker) => replicaRoleLabel(dead, broker)),
+    ["Offline", "Offline"],
+  );
+});
+
+test("a lagging replica stays online but loses the Follower role in ISR terms", () => {
+  const lagging = partitionRuntime(0, 3, {
+    onlineBrokers: [1, 2, 3],
+    laggingReplicas: ["0:2"],
+    leaders: [1, 2, 3],
+  });
+
+  assert.equal(replicaRoleLabel(lagging, 1), "Leader");
+  assert.equal(replicaRoleLabel(lagging, 2), "Follower");
+  assert.deepEqual(lagging.isrBrokers, [1, 3]);
+});
+
+test("slow processing eventually breaches max.poll.interval.ms", () => {
+  let state = createInitialState([5, 5, 5]);
+  state = consumerLabReducer(state, {
+    type: "SYNC_TOPIC",
+    leo: [60, 60, 60],
+    highWatermark: [60, 60, 60],
+  });
+  state = consumerLabReducer(state, { type: "SET_MAX_POLL", value: 5 });
+  state = consumerLabReducer(state, {
+    type: "SET_MEMBER_STATUS",
+    id: "consumer-1",
+    status: "slow",
+  });
+
+  // Heartbeat продолжает идти, поэтому session.timeout.ms не срабатывает:
+  // участника исключает именно незавершённая обработка batch.
+  for (let tick = 0; tick < state.maxPollInterval + 2; tick += 1) {
+    state = consumerLabReducer(state, { type: "TICK" });
+  }
+
+  assert.equal(state.members[0].status, "excluded");
+  assert.equal(state.phase, "EMPTY");
+  assert.match(state.log[0].detail, /max\.poll\.interval\.ms/);
+  assert.match(state.log[0].detail, /handler не завершил предыдущий batch/);
+});
+
+test("a slow consumer that caught up keeps polling and stays in the group", () => {
+  let state = createInitialState([5, 5, 5]);
+  state = consumerLabReducer(state, {
+    type: "SET_MEMBER_STATUS",
+    id: "consumer-1",
+    status: "slow",
+  });
+
+  // Новых records нет: backlog пуст, poll() продолжает вызываться.
+  for (let tick = 0; tick < state.maxPollInterval + 3; tick += 1) {
+    state = consumerLabReducer(state, { type: "TICK" });
+  }
+
+  assert.equal(state.members[0].status, "slow");
+  assert.equal(state.phase, "STABLE");
+});
+
+test("auto commit only stores offsets of assigned partitions", () => {
+  let state = createInitialState([5, 5, 5]);
+  state = consumerLabReducer(state, {
+    type: "SYNC_TOPIC",
+    leo: [11, 11, 11],
+    highWatermark: [11, 11, 11],
+  });
+  state = { ...state, assignments: ["consumer-1", null, "consumer-1"] };
+
+  for (let tick = 0; tick < state.autoCommitInterval; tick += 1) {
+    state = consumerLabReducer(state, { type: "TICK" });
+  }
+
+  assert.ok(state.committed[0] > 5);
+  assert.equal(state.committed[1], 5);
+  assert.ok(state.committed[2] > 5);
 });
