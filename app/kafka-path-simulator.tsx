@@ -749,7 +749,7 @@ export default function Home() {
     setFaultMode(next.faultMode);
     setConfigErrorAccepted(false);
     setEvents([]); setLabRecords([]); setActiveEventId(null); setSelectedEventId(null);
-    setPlaying(false); setShowSettings(false); setShowAdvancedConfig(true);
+    setPlaying(false); setShowSettings(false);
     setInspectorTab("delivery");
     applyScenarioCluster(next);
     setKeylessCounter(0);
@@ -775,7 +775,7 @@ export default function Home() {
     setFaultMode(scenario.faultMode);
     setConfigErrorAccepted(false);
     setEvents([]); setLabRecords([]); setActiveEventId(null); setSelectedEventId(null);
-    setPlaying(false); setShowSettings(false); setShowAdvancedConfig(true);
+    setPlaying(false); setShowSettings(false);
     setInspectorTab("delivery");
     applyScenarioCluster(scenario);
     setKeylessCounter(0);
