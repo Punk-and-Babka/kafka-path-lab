@@ -2,7 +2,7 @@
 
 :root {
   --ink: #15203b;
-  --muted: #69718c;
+  --muted: #68708b;
   --violet: #6956e8;
   --violet-dark: #4d3ec7;
   --violet-pale: #eeebff;
@@ -84,7 +84,7 @@ button {
 
 .version {
   padding: 4px 8px;
-  color: #7566cf;
+  color: #6d5fc1;
   background: #f0edff;
   border: 1px solid #e1dcff;
   border-radius: 6px;
@@ -1267,7 +1267,7 @@ summary:focus-visible {
   height: 27px;
   display: grid;
   place-items: center;
-  color: #9196a8;
+  color: #6e7280;
   background: white;
   border: 1px solid #d9dce6;
   border-radius: 50%;
@@ -2626,7 +2626,7 @@ body.help-discovery-active .app-shell [data-help]:hover::after {
 .consumer-member-card > header small { display: block; }
 .consumer-member-card > header strong { font-size: 10px; }
 .consumer-member-card > header small { margin-top: 2px; overflow: hidden; color: #8a90a1; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
-.consumer-member-card > header > b { padding: 3px 5px; color: #277e62; background: #e6f7f1; border-radius: 5px; font-family: var(--font-geist-mono), monospace; font-size: 10px; }
+.consumer-member-card > header > b { padding: 3px 5px; color: #277d61; background: #e6f7f1; border-radius: 5px; font-family: var(--font-geist-mono), monospace; font-size: 10px; }
 .consumer-member-card.poll-paused > header > b,
 .consumer-member-card.heartbeat-lost > header > b,
 .consumer-member-card.slow > header > b { color: #a56820; background: #fff1dc; }
@@ -4697,7 +4697,7 @@ body.help-discovery-active .app-shell [data-help]:hover::after {
 .base-segment,
 .empty-log {
   flex: 0 0 auto;
-  color: #a1a4b1;
+  color: #696b73;
   font-family: var(--font-geist-mono), monospace;
   font-size: 10px;
 }
@@ -5452,7 +5452,7 @@ button.record-row:hover,
 
 .record-head {
   min-height: 38px;
-  color: #9196a8;
+  color: #6e7280;
   background: #f8f8fb;
   font-size: 10px;
   font-weight: 750;
@@ -6262,7 +6262,7 @@ button.record-row:hover,
 }
 
 .broker-node strong em.online {
-  color: #147e5e;
+  color: #147c5c;
   background: #def6ed;
 }
 
@@ -6684,7 +6684,7 @@ button.record-row:hover,
 
 .partition-focus-tabs button.active {
   color: #fff;
-  background: #278f83;
+  background: #248479;
   box-shadow: 0 3px 8px rgba(29, 112, 102, .22);
 }
 
@@ -6895,7 +6895,7 @@ button.record-row:hover,
 
 .broker-replica-mini-list span {
   padding: 3px 5px;
-  color: #65736f;
+  color: #63716d;
   background: #edf2f1;
   border-radius: 4px;
   font-family: var(--font-geist-mono), monospace;
@@ -7640,7 +7640,7 @@ button.record-row:hover,
   flex: 0 0 26px;
   display: grid;
   place-items: center;
-  color: #8f8170;
+  color: #72675a;
   background: #eee9e2;
   border-radius: 50%;
   font-family: var(--font-geist-mono), monospace;
