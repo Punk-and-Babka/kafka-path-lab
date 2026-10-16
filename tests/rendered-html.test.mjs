@@ -150,6 +150,45 @@ test("includes the expanded searchable QA-oriented glossary", async () => {
   assert.match(glossarySource, /poll\(\) \/ max\.poll\.interval\.ms/);
 });
 
+test("keeps the learning copy consistent with the simulated Kafka version", async () => {
+  const [simulatorSource, modelSource, glossarySource] = await Promise.all([
+    readFile(new URL("../app/kafka-path-simulator.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/simulator-model.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/glossary-data.ts", import.meta.url), "utf8"),
+  ]);
+  const has = (source, fragment) => assert.ok(
+    source.includes(fragment),
+    `ожидался фрагмент: ${fragment}`,
+  );
+  const lacks = (source, fragment) => assert.ok(
+    !source.includes(fragment),
+    `фрагмент должен был исчезнуть: ${fragment}`,
+  );
+
+  // Невидимость record при ISR ниже min.insync.replicas — поведение Kafka 4.x
+  // (KIP-966), а не универсальное правило: каждая формулировка это оговаривает.
+  has(glossarySource, "KIP-966");
+  has(glossarySource, "На кластере 3.x и старше такой record виден сразу");
+  has(modelSource, "Лаборатория моделирует Kafka 4.x (KIP-966)");
+  has(simulatorSource, "в Kafka 4.x видимость требует ISR ≥ min ISR");
+
+  // Примеры словаря обязаны совпадать с фактическим partitioner лаборатории:
+  // hash("order-8421") % 3 даёт P0, а не P1.
+  has(glossarySource, "hash(order-8421) % 3 → P0");
+  assert.ok(
+    !glossarySource.split("\n").some((line) =>
+      line.includes("order-8421") && line.includes("P1")),
+    "пример с order-8421 больше не должен ссылаться на P1",
+  );
+
+  // acks=0 не ждёт ответа, поэтому его результат нельзя называть timeout.
+  has(simulatorSource, '"NO ACK"');
+  has(simulatorSource, "подтверждение не запрашивалось");
+
+  // Выбор нового Leader уже реализован: обещаний будущих версий быть не должно.
+  lacks(simulatorSource, "появится в версии");
+});
+
 test("includes the integrated Consumer Group Lab and its failure model", async () => {
   const [simulatorSource, consumerLabSource, consumerModelSource] = await Promise.all([
     readFile(new URL("../app/kafka-path-simulator.tsx", import.meta.url), "utf8"),

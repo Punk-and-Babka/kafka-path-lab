@@ -1,6 +1,30 @@
-# Kafka Path 0.7.3 — Topic / Broker UX
+# Kafka Path 0.7.4 — Correctness и словарь
 
 Интерактивная лаборатория Kafka на React, TypeScript и Vinext.
+
+Версия 0.7.4 — correctness-релиз поверх UX-базы 0.7.3. Новых режимов и экранов нет: исправлены расхождения между учебными текстами и фактическим поведением модели, найденные при сплошной проверке терминологии.
+
+Исправления 0.7.4:
+
+- видимость record при ISR ниже `min.insync.replicas` помечена как поведение
+  Kafka 4.x (KIP-966, Eligible Leader Replicas); на кластерах 3.x и старше такой
+  record становится видимым Consumer сразу, и словарь, подсказки шага
+  `committed` и подписи настроек теперь об этом говорят;
+- примеры словаря приведены к фактическому partitioner лаборатории:
+  `hash(order-8421) % 3` даёт `P0`, а первый новый offset этой partition — 19;
+- `acks=0` больше не отображается как `TIMEOUT`: Producer не ждёт подтверждения,
+  поэтому результат называется `NO ACK`, а retry помечен как `NOT USED`;
+- прогноз отказа Leader говорит «Record станет недоступен» вместо «потеряется» —
+  это согласовано с различением `UNAVAILABLE` и `LOST` из 0.7.2;
+- при единственной попытке обработки с dead letter topic повторной доставки
+  больше нет; без DLQ повтор остаётся независимо от числа попыток;
+- `At-most-once`, `At-least-once` и `Exactly-once` выделены в отдельную
+  категорию словаря «Гарантии доставки»;
+- удалён мёртвый код (`leaderForPartition`, `followerForPartition`) и поле
+  `availableBrokers`, дублировавшее состав кластера из `ClusterRuntime`;
+- убрано устаревшее обещание «Выбор нового Leader появится в версии 0.3.2».
+
+## Topic / Broker UX 0.7.3
 
 Версия 0.7.3 — небольшой UX-релиз поверх correctness-базы 0.7.2. Он делает явной связь между логическим Topic и физическим размещением partition replicas на Brokers, не меняя механику симуляции.
 
@@ -30,7 +54,8 @@
 - `Crash` сначала прекращает heartbeat и poll(), а исключение происходит только после `session.timeout.ms`;
 - остановка Broker делает данные `UNAVAILABLE / OFFLINE COPY`, но не `LOST`;
 - `request lost` при `acks=0` больше не превращается в успешную запись;
-- при `acks=1` и недостаточном `min.insync.replicas` Producer может получить ACK, но record остаётся ниже High Watermark;
+- при `acks=1` и недостаточном `min.insync.replicas` Producer может получить ACK,
+  но record остаётся ниже High Watermark (версионная оговорка — в разделе 0.7.4);
 - preview и фактическая отправка keyless record используют один partitioner cursor;
 - явно указаны `group.protocol=classic` и границы учебной модели;
 - добавлены поведенческие тесты вычислений, таймеров, commit и rebalance.
@@ -60,7 +85,7 @@ Consumer Group Lab остаётся встроенной внутрь свобо
 Расширенный словарь теперь содержит 46 терминов:
 
 - поиск по терминам и русским/английским синонимам;
-- фильтрация по пяти категориям;
+- фильтрация по шести категориям, включая отдельные «Гарантии доставки»;
 - разворачиваемые объяснения механики;
 - примеры, связанные с Kafka Path;
 - отдельный фокус «Что проверить QA».
@@ -179,7 +204,7 @@ Workflow уже находится в `.github/workflows/deploy-pages.yml`.
 
 ```bash
 git add -A
-git commit -m "Release 0.7.3 topic broker UX"
+git commit -m "Release 0.7.4 correctness and glossary"
 git push origin main
 ```
 

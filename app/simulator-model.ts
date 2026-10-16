@@ -70,7 +70,6 @@ export type DeliveryConfig = {
   acks: AcksMode;
   replicationFactor: number;
   minInSyncReplicas: number;
-  availableBrokers: number;
   retries: number;
   idempotence: boolean;
 };
@@ -212,7 +211,7 @@ export const STEPS: SimulationStep[] = [
     short: "Commit",
     title: "High Watermark делает record видимым",
     description: "Event записан на всех репликах текущего ISR, выполнен порог min.insync.replicas, и High Watermark может продвинуться.",
-    technical: "LEO и consumer-visible High Watermark — разные границы. При ISR меньше min.insync.replicas record может быть appended, но ещё не видим Consumer.",
+    technical: "LEO и consumer-visible High Watermark — разные границы. Лаборатория моделирует Kafka 4.x (KIP-966): при ISR меньше min.insync.replicas record может быть appended, но ещё не видим Consumer. На 3.x такой record стал бы видимым сразу.",
     node: "committed",
   },
   {
@@ -313,7 +312,6 @@ const reliableConfig: DeliveryConfig = {
   acks: "all",
   replicationFactor: 2,
   minInSyncReplicas: 2,
-  availableBrokers: 3,
   retries: 3,
   idempotence: true,
 };
@@ -367,7 +365,6 @@ export const SCENARIOS: Scenario[] = [
       acks: "0",
       replicationFactor: 2,
       minInSyncReplicas: 2,
-      availableBrokers: 1,
       retries: 0,
       idempotence: false,
     },
@@ -392,7 +389,6 @@ export const SCENARIOS: Scenario[] = [
       acks: "1",
       replicationFactor: 2,
       minInSyncReplicas: 2,
-      availableBrokers: 1,
       retries: 3,
       idempotence: false,
     },
@@ -413,10 +409,7 @@ export const SCENARIOS: Scenario[] = [
     defaultKey: "delivery-demo",
     defaultValue: '{"orderId":9102,"status":"shipped"}',
     sendLabel: "Отправить надёжно",
-    config: {
-      ...reliableConfig,
-      availableBrokers: 2,
-    },
+    config: reliableConfig,
     faultMode: "none",
     cluster: {
       onlineBrokers: [1, 2],
@@ -468,10 +461,7 @@ export const SCENARIOS: Scenario[] = [
     defaultKey: "cluster-demo",
     defaultValue: '{"orderId":9202,"status":"shipped"}',
     sendLabel: "Отправить после recovery",
-    config: {
-      ...reliableConfig,
-      availableBrokers: 2,
-    },
+    config: reliableConfig,
     faultMode: "none",
     focusPartition: 0,
     cluster: {
@@ -557,19 +547,11 @@ export function classifyRecordAvailability(
   return "LOST";
 }
 
-export function leaderForPartition(partition: number) {
-  return partition + 1;
-}
-
 export function replicaBrokersForPartition(partition: number, replicationFactor: number) {
   return Array.from(
     { length: Math.min(BROKER_COUNT, Math.max(1, replicationFactor)) },
     (_, index) => ((partition + index) % BROKER_COUNT) + 1,
   );
-}
-
-export function followerForPartition(partition: number) {
-  return replicaBrokersForPartition(partition, 2)[1];
 }
 
 export function replicaKey(partition: number, broker: number) {
@@ -645,6 +627,18 @@ const CONSUMER_STEP_RANK: Partial<Record<LifecycleKey, number>> = {
   sinkWrite: 3,
 };
 
+/**
+ * Повторная доставка появляется не всегда. С dead letter topic приложение
+ * отдаёт record в отдельный topic, как только исчерпало свои попытки, — при
+ * единственной попытке это происходит сразу после первой ошибки, без повтора.
+ * Без DLQ offset не фиксируется вообще, поэтому тот же record возвращается
+ * независимо от выбранного числа попыток.
+ */
+export function hasRedelivery(consumer: ConsumerConfig) {
+  return consumer.failureMode !== "none"
+    && (!consumer.deadLetterTopic || consumer.deliveryAttempts > 1);
+}
+
 export function consumerStepOrder(consumer: ConsumerConfig): LifecycleKey[] {
   const pipeline = [
     "consumerFetch",
@@ -658,10 +652,11 @@ export function consumerStepOrder(consumer: ConsumerConfig): LifecycleKey[] {
   const failureRank = CONSUMER_FAILURE_RANK[consumer.failureMode];
   const reached = pipeline.filter((step) =>
     (CONSUMER_STEP_RANK[step] ?? 0) <= failureRank);
+  const retried: LifecycleKey[] = hasRedelivery(consumer) ? ["redelivery"] : [];
   // Без DLQ commit не происходит вовсе: группа остаётся на том же offset.
   return consumer.deadLetterTopic
-    ? [...reached, "redelivery", "deadLetter", "offsetCommit"]
-    : [...reached, "redelivery"];
+    ? [...reached, ...retried, "deadLetter", "offsetCommit"]
+    : [...reached, ...retried];
 }
 
 export function stepOrderForConfig(
@@ -723,7 +718,7 @@ export function stepOrderForConfig(
 export function evaluateDelivery(
   config: DeliveryConfig,
   partition: number,
-  runtime?: ClusterRuntime,
+  runtime: ClusterRuntime,
   faultMode: NetworkFaultMode = "none",
 ): DeliveryResult {
   const configErrors: string[] = [];
@@ -735,18 +730,10 @@ export function evaluateDelivery(
   }
 
   const configValid = configErrors.length === 0;
-  const fallbackRuntime: ClusterRuntime = {
-    onlineBrokers: Array.from(
-      { length: config.availableBrokers },
-      (_, index) => index + 1,
-    ),
-    laggingReplicas: [],
-    leaders: [1, 2, 3],
-  };
   const partitionState = partitionRuntime(
     partition,
     config.replicationFactor,
-    runtime ?? fallbackRuntime,
+    runtime,
   );
   const replicaBrokers = partitionState.assignedReplicas;
   const isrReplicaBrokers = partitionState.isrBrokers;
@@ -880,7 +867,7 @@ export function stepDisposition(
       return stepRank > failureRank ? "skipped" : "success";
     }
     case "redelivery":
-      return event.result.recordCommitted && event.consumer.failureMode !== "none"
+      return event.result.recordCommitted && hasRedelivery(event.consumer)
         ? "success"
         : "skipped";
     case "deadLetter":

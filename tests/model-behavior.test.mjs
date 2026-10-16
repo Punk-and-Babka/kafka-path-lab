@@ -29,7 +29,6 @@ test("acks=0 keeps a lost request unconfirmed and writes no record", () => {
     acks: "0",
     replicationFactor: 2,
     minInSyncReplicas: 2,
-    availableBrokers: 3,
     retries: 5,
     idempotence: false,
   }, 0, healthyRuntime, "request-lost");
@@ -47,7 +46,6 @@ test("acks=1 may ACK an append that is still below the consumer-visible watermar
     acks: "1",
     replicationFactor: 1,
     minInSyncReplicas: 2,
-    availableBrokers: 1,
     retries: 0,
     idempotence: false,
   }, 0, {
@@ -67,7 +65,6 @@ test("acks=all rejects the same insufficient ISR before append", () => {
     acks: "all",
     replicationFactor: 1,
     minInSyncReplicas: 2,
-    availableBrokers: 1,
     retries: 0,
     idempotence: false,
   }, 0, {
@@ -280,7 +277,6 @@ const deliveryConfig = (overrides = {}) => ({
   acks: "all",
   replicationFactor: 2,
   minInSyncReplicas: 2,
-  availableBrokers: 3,
   retries: 3,
   idempotence: true,
   ...overrides,
@@ -437,6 +433,44 @@ test("without a dead letter topic the offset is never committed", () => {
     "redelivery",
   ]);
   assert.equal(order.includes("offsetCommit"), false);
+});
+
+test("a single attempt with a dead letter topic skips redelivery entirely", () => {
+  const consumer = consumerConfig({ failureMode: "processing", deliveryAttempts: 1 });
+
+  assert.deepEqual(consumerStepOrder(consumer), [
+    "consumerFetch",
+    "deserialization",
+    "businessProcessing",
+    "deadLetter",
+    "offsetCommit",
+  ]);
+
+  const event = eventFor(deliveryConfig(), "none", healthyRuntime, 0, consumer);
+  assert.equal(stepDisposition(event, "redelivery"), "skipped");
+  assert.equal(stepDisposition(event, "deadLetter"), "success");
+  assert.equal(stepDisposition(event, "offsetCommit"), "success");
+});
+
+test("a single attempt without a dead letter topic still repeats the record", () => {
+  // Отсутствие DLQ не даёт зафиксировать offset, поэтому повтор происходит
+  // независимо от того, сколько попыток выделило себе приложение.
+  const consumer = consumerConfig({
+    failureMode: "processing",
+    deliveryAttempts: 1,
+    deadLetterTopic: false,
+  });
+
+  assert.deepEqual(consumerStepOrder(consumer), [
+    "consumerFetch",
+    "deserialization",
+    "businessProcessing",
+    "redelivery",
+  ]);
+
+  const event = eventFor(deliveryConfig(), "none", healthyRuntime, 0, consumer);
+  assert.equal(stepDisposition(event, "redelivery"), "success");
+  assert.equal(stepDisposition(event, "offsetCommit"), "skipped");
 });
 
 test("a handler exception fails processing and skips the side effect", () => {

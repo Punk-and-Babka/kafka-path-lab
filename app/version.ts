@@ -5,7 +5,7 @@
  * тест `tests/rendered-html.test.mjs`, чтобы релиз нельзя было выпустить с
  * рассинхронизированными номерами в интерфейсе, метаданных страницы и пакете.
  */
-export const APP_VERSION = "0.7.3";
+export const APP_VERSION = "0.7.4";
 
 /** Подпись релиза в шапке страницы и в метаданных. */
-export const APP_TITLE = `Kafka Path ${APP_VERSION} — Topic and Broker UX`;
+export const APP_TITLE = `Kafka Path ${APP_VERSION} — Correctness and Glossary`;

@@ -184,7 +184,7 @@ function copyForStep(event: EventRecord | null, step: SimulationStep | null) {
         : `${reason} Produce request завершится ошибкой ${result.errorCode ?? "ConfigException"}.`,
       technical: delivery.acks === "all"
         ? "При acks=all Broker проверяет min.insync.replicas и может отклонить запись до append."
-        : "Без доступного Leader append невозможен. Выбор нового Leader появится в версии 0.3.2.",
+        : "Без доступного Leader append невозможен. Новым Leader может стать только синхронная replica — верните Broker в ISR в Cluster Resilience Lab.",
     };
   }
   if (step.id === "replication") {
@@ -206,7 +206,7 @@ function copyForStep(event: EventRecord | null, step: SimulationStep | null) {
       return {
         title: "Followers недоступны",
         description: "Record остался только на Leader: доступных follower-replicas сейчас нет.",
-        technical: "При acks=0/1 min.insync.replicas не блокирует append, но до выполнения порога record не продвинет High Watermark и не будет видим Consumer.",
+        technical: "При acks=0/1 min.insync.replicas не блокирует append. В Kafka 4.x (KIP-966) до выполнения порога record всё равно не продвинет High Watermark и не будет видим Consumer.",
       };
     }
     return {
@@ -232,7 +232,7 @@ function copyForStep(event: EventRecord | null, step: SimulationStep | null) {
     return {
       title: "High Watermark не продвинулся",
       description: `Record appended на Leader, но ISR=${result.currentIsr} меньше min.insync.replicas=${delivery.minInSyncReplicas}.`,
-      technical: "Producer с acks=1 уже мог получить SUCCESS, однако Consumer не увидит этот record до выполнения условия репликации и min ISR.",
+      technical: "Producer с acks=1 уже мог получить SUCCESS, однако в Kafka 4.x Consumer не увидит этот record до выполнения условия репликации и min ISR. До KIP-966 record был бы виден сразу.",
     };
   }
   if (step.id === "networkTimeout") {
@@ -324,7 +324,9 @@ function copyForStep(event: EventRecord | null, step: SimulationStep | null) {
       : event.consumer.failureMode === "processing" ? "бизнес-обработка" : "запись в БД";
     return {
       title: "Record будет доставлен повторно",
-      description: `Упала ${failedStep}, поэтому offset не зафиксирован. Приложение повторит обработку до ${event.consumer.deliveryAttempts} раз.`,
+      description: event.consumer.deadLetterTopic
+        ? `Упала ${failedStep}, поэтому offset не зафиксирован: при ${event.consumer.deliveryAttempts} попытках обработки record вернётся ещё до ${event.consumer.deliveryAttempts - 1} раз.`
+        : `Упала ${failedStep}, поэтому offset не зафиксирован. Без dead letter topic попытки не заканчиваются: тот же offset будет приходить снова.`,
       technical: event.consumer.deadLetterTopic
         ? "Kafka считает record выданным; повтор — это следствие отсутствия commit, а не встроенный retry Broker."
         : "Без DLQ попытки не заканчиваются ничем: partition остановится на этом offset, а lag будет расти.",
@@ -1033,7 +1035,6 @@ export default function Home() {
     setOnlineBrokers(nextOnline);
     setLaggingReplicas(nextLagging);
     setLeaders(nextLeaders);
-    setDeliveryConfig((current) => ({ ...current, availableBrokers: nextOnline.length }));
     setClusterNotice(stopping
       ? broker === focusBefore.leaderBroker
         ? {
@@ -1380,7 +1381,7 @@ export default function Home() {
             </div>
 
             <div className="config-control">
-              <label htmlFor="min-isr-select">min.insync.replicas <small>acks=all + consumer visibility</small></label>
+              <label htmlFor="min-isr-select">min.insync.replicas <small>acks=all + visibility (Kafka 4.x)</small></label>
               <select
                 id="min-isr-select"
                 value={deliveryConfig.minInSyncReplicas}
@@ -1482,7 +1483,7 @@ export default function Home() {
             <article className={previewResult.recordCommitted ? "good" : previewResult.leaderAppended ? "warn" : "neutral"}>
               <span>CONSUMER УВИДИТ</span>
               <strong>{previewResult.recordCommitted ? "Да · HW продвинется" : previewResult.leaderAppended ? "Нет · ниже HW" : "Нет record"}</strong>
-              <small>видимость требует ISR ≥ min ISR</small>
+              <small>в Kafka 4.x видимость требует ISR ≥ min ISR</small>
             </article>
             <article className={
               !previewResult.leaderAppended ? "neutral"
@@ -1490,8 +1491,10 @@ export default function Home() {
             }>
               <span>ЕСЛИ LEADER УПАДЁТ</span>
               <strong>{!previewResult.leaderAppended ? "Проверять нечего"
-                : previewResult.survivesLeaderFailure ? "Record сохранится" : "Record потеряется"}</strong>
-              <small>{previewResult.survivesLeaderFailure ? "есть резервная replica" : "резервной копии нет"}</small>
+                : previewResult.survivesLeaderFailure ? "Record сохранится" : "Record станет недоступен"}</strong>
+              <small>{previewResult.survivesLeaderFailure
+                ? "есть резервная replica"
+                : "единственная копия уйдёт в offline: UNAVAILABLE, не LOST"}</small>
             </article>
           </div>
         </section>
@@ -1562,21 +1565,27 @@ export default function Home() {
                 ? "DEDUPLICATED"
                 : retryResult.duplicateWritten
                   ? "DUPLICATE"
-                  : retryResult.ambiguousResult
-                    ? "AMBIGUOUS"
-                    : retryFault === "request-lost" && retryResult.attempts > 1
-                      ? "RECOVERED"
-                      : "NOT USED"}</strong>
+                  : inspectorDelivery.acks === "0"
+                    ? "NOT USED"
+                    : retryResult.ambiguousResult
+                      ? "AMBIGUOUS"
+                      : retryFault === "request-lost" && retryResult.attempts > 1
+                        ? "RECOVERED"
+                        : "NOT USED"}</strong>
               <small>idempotence={String(inspectorDelivery.idempotence)}</small>
             </article>
             <article className={retryResult.ambiguousResult ? "warning" : "good"}>
               <span>PRODUCER RESULT</span>
-              <strong>{retryResult.ambiguousResult
-                ? "TIMEOUT"
-                : retryResult.producerResult === "ack"
-                  ? "SUCCESS"
-                  : retryResult.producerResult.toUpperCase()}</strong>
-              <small>{retryResult.ambiguousResult ? "record мог сохраниться" : "финальный статус известен"}</small>
+              <strong>{inspectorDelivery.acks === "0"
+                ? "NO ACK"
+                : retryResult.ambiguousResult
+                  ? "TIMEOUT"
+                  : retryResult.producerResult === "ack"
+                    ? "SUCCESS"
+                    : retryResult.producerResult.toUpperCase()}</strong>
+              <small>{inspectorDelivery.acks === "0"
+                ? "подтверждение не запрашивалось"
+                : retryResult.ambiguousResult ? "record мог сохраниться" : "финальный статус известен"}</small>
             </article>
           </div>
 
@@ -1817,7 +1826,9 @@ export default function Home() {
               {consumerConfig.failureMode === "none"
                 ? "Обработка доходит до конца: offset фиксируется, группа движется дальше."
                 : consumerConfig.deadLetterTopic
-                  ? `Record повторится ${consumerConfig.deliveryAttempts} раз, затем уйдёт в ${topicName || TOPIC_NAME}.DLQ, и только после этого offset продвинется.`
+                  ? consumerConfig.deliveryAttempts > 1
+                    ? `Обработка выполняется до ${consumerConfig.deliveryAttempts} попыток, затем record уходит в ${topicName || TOPIC_NAME}.DLQ, и только после этого offset продвинется.`
+                    : `Попытка всего одна: после первой же ошибки record уйдёт в ${topicName || TOPIC_NAME}.DLQ без повторной доставки, и только после этого offset продвинется.`
                   : "Без DLQ offset не зафиксируется никогда: poll() будет возвращать один и тот же record, а partition встанет — это poison pill."}
             </p>
           </div>
@@ -2193,7 +2204,7 @@ export default function Home() {
                     <div><span>Produce requests</span><b>{inspectorResult.attempts}</b></div>
                     <div><span>Records written</span><b>{inspectorResult.recordsWritten}</b></div>
                     <div><span>Record state</span><b>{inspectorUnavailable ? "UNAVAILABLE · OFFLINE COPY" : inspectorCommitted ? "consumer-visible" : "appended · below HW"}</b></div>
-                    <div><span>Next Leader failure</span><b>{inspectorUnavailable ? "сначала восстановите Broker" : inspectorOnlineCopies === 0 ? "нет record" : inspectorOnlineCopies >= 2 ? "переживёт" : "может потеряться"}</b></div>
+                    <div><span>Next Leader failure</span><b>{inspectorUnavailable ? "сначала восстановите Broker" : inspectorOnlineCopies === 0 ? "нет record" : inspectorOnlineCopies >= 2 ? "переживёт" : "станет недоступен"}</b></div>
                     <div><span>Idempotence</span><b>{inspectorDelivery.idempotence ? "enabled" : "disabled"}</b></div>
                   </div>
                   {selectedEvent && selectedEvent.faultMode !== "none" && (
@@ -2209,10 +2220,10 @@ export default function Home() {
                         ? "Найдите два offsets с одинаковыми eventId, key и payload: это сетевой retry, создавший физический дубль."
                         : inspectorResult.duplicateSuppressed
                           ? "Проверьте две попытки в логах Producer и только один record в partition: retry был подавлен Broker."
-                          : inspectorResult.ambiguousResult
-                            ? "После TimeoutException обязательно проверьте topic: record мог быть записан до потери ACK."
-                            : inspectorDelivery.acks === "0"
-                        ? "Нельзя подтверждать доставку только по успешному вызову send(): ACK вообще не ожидается."
+                          : inspectorDelivery.acks === "0"
+                            ? "Нельзя подтверждать доставку только по успешному вызову send(): ACK вообще не ожидается."
+                            : inspectorResult.ambiguousResult
+                        ? "После TimeoutException обязательно проверьте topic: record мог быть записан до потери ACK."
                         : inspectorDelivery.acks === "1"
                           ? "Разделяйте успешный ACK Leader и наличие резервной копии на Follower."
                           : "Проверяйте вместе acks=all, размер ISR и min.insync.replicas."
