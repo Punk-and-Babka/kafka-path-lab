@@ -59,9 +59,23 @@ test("renders the sandbox, guided-scenario, and constructor entry points", async
   assert.match(html, /Cluster Resilience/);
   assert.match(html, /Consumer Group Lab/);
   assert.match(html, /Consumer Errors/);
-  assert.match(html, /CONSUMER ERROR LAB/);
-  assert.match(html, /dead letter topic/);
   assert.match(html, /Подсказка/);
+  // Сами стенды свёрнуты на старте, поэтому в разметке есть только кнопка,
+  // которая их раскрывает, а не их содержимое.
+  assert.match(html, /Показать лаборатории песочницы/);
+  assert.doesNotMatch(html, /CONSUMER ERROR LAB/);
+});
+
+test("keeps the consumer error lab and dead letter topic behind the labs toggle", async () => {
+  const source = await readFile(
+    new URL("../app/kafka-path-simulator.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, /\{showAdvancedConfig && </);
+  assert.match(source, /id="consumer-error-lab"/);
+  assert.match(source, /CONSUMER ERROR LAB/);
+  assert.match(source, /dead letter topic/);
 });
 
 test("explains logical Topic and physical Broker placement", async () => {

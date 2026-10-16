@@ -94,6 +94,10 @@ const storageFileCopy = {
   },
 } as const;
 
+// Запас в пикселях, ниже которого прокрутку считаем доведённой до края:
+// subpixel-раскладка не даёт scrollLeft точно совпасть с максимумом.
+const EDGE_THRESHOLD = 4;
+
 function formatTime(date: Date) {
   return date.toLocaleTimeString("ru-RU", {
     hour: "2-digit", minute: "2-digit", second: "2-digit",
@@ -368,7 +372,9 @@ export default function Home() {
   const [glossaryQuery, setGlossaryQuery] = useState("");
   const [glossaryCategory, setGlossaryCategory] = useState<GlossaryCategory | "Все">("Все");
   const [showSettings, setShowSettings] = useState(false);
-  const [showAdvancedConfig, setShowAdvancedConfig] = useState(true);
+  // Лаборатории свёрнуты на старте: иначе песочница открывается стеной из
+  // четырёх стендов разом. Входная точка — sandbox-lab-index, он их и раскроет.
+  const [showAdvancedConfig, setShowAdvancedConfig] = useState(false);
   const [showClusterFocus, setShowClusterFocus] = useState(false);
   const [selectedPartition, setSelectedPartition] = useState<number | null>(null);
   const [selectedBroker, setSelectedBroker] = useState<number | null>(null);
@@ -393,6 +399,7 @@ export default function Home() {
   const [autoFollow, setAutoFollow] = useState(true);
   const chainViewportRef = useRef<HTMLDivElement>(null);
   const chainMapRef = useRef<HTMLDivElement>(null);
+  const [chainEdges, setChainEdges] = useState({ start: false, end: false });
   const labProducerCursor = useRef(0);
   const labRecordCounter = useRef(1);
   const eventCounter = useRef(1);
@@ -913,12 +920,18 @@ export default function Home() {
   const openSandboxLab = (sectionId: string) => {
     if (sectionId === "consumer-group-lab") setShowConsumerLab(true);
     else setShowAdvancedConfig(true);
-    window.setTimeout(() => {
-      document.getElementById(sectionId)?.scrollIntoView({
-        behavior: "smooth",
-        block: "start",
-      });
-    }, 0);
+    // Секция монтируется тем же обновлением, поэтому ждём её появления в DOM,
+    // а не фиксированный тик таймера: иначе scrollIntoView промахивается.
+    let attempts = 0;
+    const scrollWhenReady = () => {
+      const section = document.getElementById(sectionId);
+      if (section) {
+        section.scrollIntoView({ behavior: "smooth", block: "start" });
+        return;
+      }
+      if (attempts++ < 10) window.requestAnimationFrame(scrollWhenReady);
+    };
+    window.requestAnimationFrame(scrollWhenReady);
   };
 
   const copyPayload = async () => {
@@ -968,6 +981,38 @@ export default function Home() {
     const target = (orb.x / 100) * map.offsetWidth - viewport.clientWidth / 2;
     viewport.scrollTo({ left: Math.max(0, target), behavior: "smooth" });
   }, [activeEvent, autoFollow, orb.x, showClusterFocus]);
+
+  // Схема шире любого реального экрана, поэтому правая половина цепочки
+  // (Consumer, side effect, commit) не видна, пока её не прокрутят. Края
+  // подсвечиваются только с той стороны, где действительно есть продолжение.
+  useEffect(() => {
+    const viewport = chainViewportRef.current;
+    if (!viewport) return;
+
+    const update = () => {
+      const hidden = viewport.scrollWidth - viewport.clientWidth;
+      setChainEdges({
+        start: viewport.scrollLeft > EDGE_THRESHOLD,
+        end: hidden > EDGE_THRESHOLD && viewport.scrollLeft < hidden - EDGE_THRESHOLD,
+      });
+    };
+
+    update();
+    viewport.addEventListener("scroll", update, { passive: true });
+    const observer = new ResizeObserver(update);
+    observer.observe(viewport);
+    return () => {
+      viewport.removeEventListener("scroll", update);
+      observer.disconnect();
+    };
+  }, [showClusterFocus]);
+
+  const scrollChain = (direction: 1 | -1) => {
+    const viewport = chainViewportRef.current;
+    if (!viewport) return;
+    setAutoFollow(false);
+    viewport.scrollBy({ left: direction * viewport.clientWidth * 0.8, behavior: "smooth" });
+  };
 
   const activeConsumerConfig = activeEvent?.consumer ?? consumerConfig;
   const dlqRouted = activeConsumerConfig.failureMode !== "none"
@@ -1917,6 +1962,7 @@ export default function Home() {
               </div>
             </section>
 
+            <div className={`chain-stage ${chainEdges.start ? "at-start" : ""} ${chainEdges.end ? "at-end" : ""}`}>
             <div className="chain-viewport" ref={chainViewportRef}>
             <div className="cluster-map extended-map" ref={chainMapRef}>
               <svg className="connectors" viewBox="0 0 1000 520" preserveAspectRatio="none" aria-hidden="true">
@@ -2072,6 +2118,25 @@ export default function Home() {
               }</b></div>}
               {!activeEvent && <div className="empty-map"><span><Send size={20} /></span><strong>Система ждёт данные</strong><small>Отправьте event или файл, чтобы запустить state machine</small></div>}
             </div>
+            </div>
+            <button
+              className="chain-peek start"
+              onClick={() => scrollChain(-1)}
+              tabIndex={chainEdges.start ? 0 : -1}
+              aria-hidden={!chainEdges.start}
+              aria-label="Прокрутить схему к Producer"
+            >
+              <SkipBack size={16} />
+            </button>
+            <button
+              className="chain-peek end"
+              onClick={() => scrollChain(1)}
+              tabIndex={chainEdges.end ? 0 : -1}
+              aria-hidden={!chainEdges.end}
+              aria-label="Прокрутить схему к Consumer и commit"
+            >
+              <SkipForward size={16} />
+            </button>
             </div>
 
             <div

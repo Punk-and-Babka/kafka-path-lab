@@ -978,9 +978,11 @@ summary:focus-visible {
 .broker-node strong {
   display: block;
   margin-bottom: 3px;
+  overflow: hidden;
   color: #283149;
   font-size: 11px;
   font-weight: 700;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -3030,6 +3032,11 @@ body.help-discovery-active .app-shell [data-help]:hover::after {
 
 .node-palette > header span,
 .node-inspector > header span,
+.stage-heading > div:first-child {
+  display: flex;
+  flex-direction: column;
+}
+
 .stage-heading > div:first-child > span {
   color: #8174d5;
   font-family: var(--font-geist-mono), monospace;
@@ -6183,11 +6190,9 @@ button.record-row:hover,
 }
 
 .delivery-forecast small {
-  overflow: hidden;
   color: #8b90a2;
   font-size: 9px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.35;
 }
 
 .composer-card {
@@ -8013,6 +8018,69 @@ button.record-row:hover,
 }
 
 /* Kafka Path 0.4.0.1 — extended end-to-end event chain layout hotfix. */
+.chain-stage {
+  position: relative;
+}
+
+/* Градиент и кнопка появляются только с той стороны, где схема продолжается. */
+.chain-stage::before,
+.chain-stage::after {
+  width: 56px;
+  position: absolute;
+  inset-block: 0;
+  z-index: 4;
+  opacity: 0;
+  content: "";
+  pointer-events: none;
+  transition: opacity 180ms ease;
+}
+
+.chain-stage::before {
+  left: 0;
+  background: linear-gradient(to right, rgba(252, 252, 254, .96), rgba(252, 252, 254, 0));
+}
+
+.chain-stage::after {
+  right: 0;
+  background: linear-gradient(to left, rgba(252, 252, 254, .96), rgba(252, 252, 254, 0));
+}
+
+.chain-stage.at-start::before,
+.chain-stage.at-end::after {
+  opacity: 1;
+}
+
+.chain-peek {
+  width: 30px;
+  height: 30px;
+  position: absolute;
+  top: 50%;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  color: #5a4fc4;
+  background: rgba(255, 255, 255, .94);
+  border: 1px solid #ddd9f4;
+  border-radius: 50%;
+  box-shadow: 0 4px 14px rgba(35, 39, 67, .14);
+  opacity: 0;
+  cursor: pointer;
+  transform: translateY(-50%);
+  transition: opacity 180ms ease, border-color 160ms ease;
+  pointer-events: none;
+}
+
+.chain-peek.start { left: 10px; }
+.chain-peek.end { right: 10px; }
+
+.chain-stage.at-start .chain-peek.start,
+.chain-stage.at-end .chain-peek.end {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.chain-peek:hover { border-color: #b9aef0; }
+
 .chain-viewport {
   width: 100%;
   position: relative;
@@ -8170,7 +8238,8 @@ button.record-row:hover,
 }
 
 .extended-map .pipeline-node,
-.extended-map .consumer-node {
+.extended-map .consumer-node,
+.extended-map .producer-node {
   width: 184px;
 }
 
